@@ -1,6 +1,7 @@
 import { pool } from '../db/index';
 import logger from '../utils/logger';
 import { DEFAULT_TENANT_SLUG } from '../config/constants';
+import { listSeoSiteDomains } from './seoSiteRegistry';
 import type { AgencyDailyData } from './intelligenceDataCollector';
 
 // ---------------------------------------------------------------------------
@@ -136,6 +137,30 @@ export async function analyzeWithClaude(data: AgencyDailyData, tenantId?: string
 
   const prompt = buildPrompt(data);
 
+  // Resolve the SEO client-domain list for the system prompt's "Agency
+  // context" section from the tenant already known here — never a
+  // hardcoded array (see tenant-isolation audit, 2026-08-05: this used to
+  // read `aarohaom.com, blackpandaenterprises.com, ageddentistry.org`
+  // verbatim, which would tell a reseller tenant's coaching report that it
+  // owns GE's own clients). Both callers already resolve a tenant before
+  // this point — worker.ts's cron via data.tenantId (from
+  // getDefaultIngestTenant in intelligenceDataCollector.ts), routes/
+  // intelligence.ts's manual trigger via the tenantId param (from
+  // req.user) — so there's nothing ambiguous to fall back to
+  // resolveDefaultSeoTenantId() for, and no reason to risk its
+  // multiple-active-tenant throw inside report generation.
+  const seoTenantId = tenantId ?? (data.tenantId || undefined);
+  let seoClientDomains: string[] = [];
+  if (seoTenantId) {
+    seoClientDomains = await listSeoSiteDomains(seoTenantId).catch((e) => {
+      logger.warn('[intelligence] could not load SEO site domains for prompt context:', e instanceof Error ? e.message : String(e));
+      return [];
+    });
+  } else {
+    logger.warn('[intelligence] no tenant resolved — omitting SEO client list from prompt context');
+  }
+  const seoClientsLine = seoClientDomains.length > 0 ? seoClientDomains.join(', ') : 'none registered for this tenant';
+
   const response = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     signal: AbortSignal.timeout(120000), // 120s max for Claude API
@@ -162,11 +187,11 @@ Coaching philosophy:
 
 Agency context:
 - Core service: Meta Ads + CRO for D2C brands
-- SEO clients: aarohaom.com, blackpandaenterprises.com, ageddentistry.org
+- SEO clients: ${seoClientsLine}
 - White label: Meta Ads for UK/AU/CA agencies at $900/month
 - Team: Jatin (founder/admin), Sakcham (sales/ads), Keshav (video editor)
 - Production repo: ~/repo-comparison/v2 on Railway (GE-Backend-Server)
-- n8n SEO workflows: primary-production-6c6f5.up.railway.app
+- SEO workflows: 13 native backend services (src/services/seo*) — n8n has been decommissioned and is no longer part of this system
 - CRM: web-production-311da.up.railway.app/crm
 
 When SEO workflows are broken or overdue, flag as CRITICAL since client data collection has stopped. Name specific workflows and days overdue.
@@ -361,7 +386,6 @@ COMMUNICATION: ${JSON.stringify(data.whatsapp, null, 2)}
 BILLING: ${JSON.stringify(billingSummary, null, 2)}
 
 SEO WORKFLOW HEALTH:
-n8n Status: ${wf.n8nAlive ? 'Online' : 'OFFLINE ⚠️'}
 Workflows healthy: ${wf.healthyCount}/${wf.totalCount}
 ${wfSummary}
 ${wf.workflows.map(w =>
@@ -468,7 +492,7 @@ function buildFallbackAnalysis(data: AgencyDailyData): Analysis {
       what_is_broken: brokenWfs.map(w => `${w.name} — ${w.daysSince === 999 ? 'never run' : `${w.daysSince}d overdue`}`).join('; '),
       business_impact: 'Client SEO performance is invisible — no data being collected',
       owner: 'Jatin', deadline: 'today',
-      fix_steps: ['Go to /seo → Workflows', 'Click Run Now on each broken workflow', 'Check n8n logs if workflow fails'],
+      fix_steps: ['Go to /seo → Workflows', 'Click Run Now on each broken workflow', 'Check server logs for the backend-native service if it fails'],
       claude_prompt: null,
       claude_code_prompt: `cd ~/repo-comparison/v2\n\nNEVER TOUCH: src/db/schema.ts, src/db/migrations/, src/middleware/auth.ts, src/middleware/rbac.ts, src/routes/cashfree.ts, src/routes/webhooks.ts\n\nPROBLEM: SEO workflows not running. Broken: ${brokenWfs.map(w => w.name).join(', ')}\n\nCheck seoWorkflowHealthService.ts and seoWorkflows.ts route. Diagnose why data is not being populated in SEO tables. Check if the webhook triggers are working. Fix and commit.`,
       terminal_commands: [],
@@ -510,7 +534,7 @@ function buildFallbackAnalysis(data: AgencyDailyData): Analysis {
         workflow: w.name,
         days_overdue: w.daysSince === 999 ? -1 : w.daysSince,
         impact: 'Data not collected — client visibility gap',
-        fix_prompt: `cd ~/repo-comparison/v2\nDiagnose why ${w.name} (${w.id}) is not running. Check the n8n webhook endpoint and output table freshness.`,
+        fix_prompt: `cd ~/repo-comparison/v2\nDiagnose why ${w.name} (${w.id}) is not running. Check the backend-native service in src/services/seo* and output table freshness.`,
       })),
       keyword_insights: data.seo.keywordsImproved > data.seo.keywordsDropped
         ? `${data.seo.keywordsImproved} keywords improving — maintain current strategy`

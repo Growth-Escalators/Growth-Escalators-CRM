@@ -209,14 +209,37 @@ export async function ingestWizmatchSignals(
         result.duplicates++;
         continue;
       }
-      await dbPool.query(
+      const inserted = await dbPool.query(
         `INSERT INTO wizmatch_job_signals
          (tenant_id,company_id,job_title,job_url,source,provider_id,identity_fingerprint,posted_at,employment_type,keywords,location,raw_text,status,created_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'new',NOW())`,
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'new',NOW()) RETURNING id`,
         [tenantId, companyId, title, sig.job_url || null, sig.source, providerId, fingerprint,
           sig.posted_at || null, sig.employment_type || null, sig.keywords || [], sig.location || null, sig.raw_text || null],
       );
       result.inserted++;
+
+      // Score on arrival. Previously nothing on this path ever scored a signal: the
+      // only callers of scoreSignalById are a cron gated behind
+      // WIZMATCH_LEGACY_AUTOMATION_ENABLED (false in production) and an HTTP route
+      // behind requireInternalToken that no operator session can reach. Every signal
+      // therefore sat at score 0 with an empty breakdown forever, which in turn
+      // starved every downstream stage — enrichment selects score >= 7, matching
+      // selects status='enriched'.
+      //
+      // Deliberately outside the ingest try/catch's failure accounting: scoring is a
+      // pure, no-network, $0 function, but a scoring fault must not roll back or
+      // discard a signal that is already safely persisted. A signal that lands
+      // unscored is recoverable (ensureSignalScored, or the backfill); one that is
+      // dropped is not.
+      const signalId = inserted.rows[0]?.id;
+      if (signalId) {
+        try {
+          const { scoreSignalById, isWizmatchScoreAlertsEnabled } = await import('./wizmatchSignalPipeline');
+          await scoreSignalById(tenantId, signalId, { notify: isWizmatchScoreAlertsEnabled(), db: dbPool });
+        } catch (scoreError) {
+          logger.error({ err: scoreError, signalId }, '[wizmatch/sourcing] ingest scoring failed — signal kept, left unscored');
+        }
+      }
     } catch (error) {
       result.errors++;
       logger.error({ err: error, source: sig.source }, '[wizmatch/sourcing] signal ingest failed');
@@ -291,6 +314,26 @@ export async function finishSourceRun(runId: string, tenantId: string, input: Pa
 }
 
 export async function qualifySignalAndCreatePocTask(tenantId: string, signalId: string, userId: string) {
+  // Score before qualifying, so that status='scored' below is true rather than a claim.
+  //
+  // This UPDATE used to be the whole story, and it corrupted a signal on every press:
+  // it advanced status to 'scored' while leaving score at 0 and score_breakdown at {}.
+  // The scoring cron selects WHERE status='new', so a qualified signal was removed from
+  // the scoring queue permanently — it could never be scored afterwards, by any path,
+  // and could never satisfy the enrichment stage's score >= 7. Pressing "Qualify + POC
+  // task" was silently the most destructive button on the screen.
+  //
+  // ensureSignalScored is a no-op when the signal already carries a real breakdown, so
+  // re-qualifying is safe and does not re-fire the priority alert. Run outside the
+  // transaction below: it uses the pool rather than this client, and a scoring failure
+  // should not abort the POC task the operator actually asked for.
+  const { ensureSignalScored, isWizmatchScoreAlertsEnabled } = await import('./wizmatchSignalPipeline');
+  try {
+    await ensureSignalScored(tenantId, signalId, { notify: isWizmatchScoreAlertsEnabled() });
+  } catch (scoreError) {
+    logger.error({ err: scoreError, signalId }, '[wizmatch/sourcing] qualify-time scoring failed — continuing with qualify');
+  }
+
   const client = await pool.connect();
   try {
     await client.query('BEGIN');

@@ -425,10 +425,32 @@ export function assessWizmatchPilotReadiness(inputs: PilotReadinessInputs): Pilo
     // existing users/tenants tables), no ALTER of any existing table.
     // Renumbered from 45 to 46 during merge — 45 was already claimed by the
     // roles/role_permissions PR by the time this one merged.
+    // ---- SEO platform, phases 1-6 (owner-authorised 2026-08-05/06) --------
+    // RENUMBERED 45-49 -> 47-51 during this merge, for the same reason main
+    // renumbered 45->46 above: both branches independently claimed 45 and 46.
+    // The SQL bodies are unchanged; only the file numbers and journal moved.
+    // 47 = SEO tenant hardening. Backfills orphaned seo_content_calendar
+    // tenant_id values (the old column default was a sentinel UUID that is not
+    // a real tenants row) BEFORE adding the FK, adds nullable approval columns
+    // to client_pages, a nullable tenant_id to seo_workflow_logs, and DROPs the
+    // four unused seo_looker_* views.
+    // 48 = seo_sites registry + a NULLABLE site_id FK on nine SEO tables, then
+    // seeds the registry from the distinct (tenant_id, client_domain) pairs
+    // already present and backfills site_id. Fully additive; seed and backfill
+    // join on BOTH tenant_id and a normalised domain so two tenants working the
+    // same domain are never cross-linked.
+    // 49 = drops seo_content_calendar's legacy 3-column unique index, the
+    // deferred half of 47. UNIQUE on (client_domain, keyword, content_type)
+    // with no tenant column made that combination GLOBALLY exclusive.
+    // 50 = site_changes + seo_site_snapshots. Carries the CHECK constraint
+    // site_changes_approved_requires_approver, the database-level half of the
+    // human-approval hard stop.
+    // 51 = seo_api_usage, the per-tenant/per-site spend ledger.
+    // All five touch only SEO tables and carry no outreach/sequence/reply data.
     // Bump this ONLY alongside an explicit authorisation for the migration in
     // question — the point of the mark is that an unreviewed migration showing
     // up in a hardening pass still gets surfaced.
-    const AUTHORISED_MIGRATION_HIGH_WATER_MARK = 46;
+    const AUTHORISED_MIGRATION_HIGH_WATER_MARK = 51;
     const unauthorised = sqlFiles
       .map((f) => ({ file: f, idx: parseInt(f.slice(0, 4), 10) }))
       .filter((m) => Number.isFinite(m.idx) && m.idx > AUTHORISED_MIGRATION_HIGH_WATER_MARK)

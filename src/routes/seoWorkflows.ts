@@ -9,8 +9,6 @@ import {
 
 const router = Router();
 
-const N8N_BASE = process.env.N8N_BASE_URL ?? 'https://primary-production-6c6f5.up.railway.app';
-
 // Ensure table exists at startup
 ensureSeoWorkflowLogsTable().catch(e => logger.error('[seo-workflows] table bootstrap failed:', e));
 
@@ -65,22 +63,8 @@ router.post('/trigger/:workflowPath', async (req: Request, res: Response) => {
       logger.info(`[seo-workflows] ran ${wf.name} (backend-native) → ${result.detail}`);
       res.json({ triggered: result.ok, workflow: wf.name, at: startedAt.toISOString(), method: 'backend', detail: result.detail });
     } else {
-      // Fallback to n8n webhook for workflows without backend implementation
-      const webhookUrl = `${N8N_BASE}/webhook/${workflowPath}`;
-      const triggerRes = await fetch(webhookUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ triggered_by: 'manual', triggered_at: startedAt.toISOString() }),
-        signal: AbortSignal.timeout(10000),
-      });
-
-      await pool.query(
-        `INSERT INTO seo_workflow_logs (workflow_id, workflow_name, status, started_at, triggered_by)
-         VALUES ($1, $2, $3, $4, 'manual')`,
-        [wf.id, wf.name, triggerRes.ok ? 'triggered' : 'error', startedAt],
-      );
-
-      res.json({ triggered: triggerRes.ok, workflow: wf.name, at: startedAt.toISOString(), method: 'n8n', httpStatus: triggerRes.status });
+      // No backend-native implementation for this workflow
+      res.status(501).json({ error: 'workflow_not_implemented', workflow: wf.id });
     }
   } catch (e) {
     logger.error('[seo-workflows] trigger error:', e);

@@ -1,6 +1,12 @@
 import { pool } from '../db/index';
 import logger from '../utils/logger';
 import { resolveDefaultSeoTenantId } from './seoTenantContext';
+import {
+  createSeoSiteIdResolver,
+  createSeoSpendContextResolver,
+  guardedSerperCall,
+  type SeoSpendContextResolver,
+} from './seoSerperGuard';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -27,49 +33,80 @@ interface CompetitorContentAnalysis {
 // ---------------------------------------------------------------------------
 // Fetch competitor pages from Serper.dev
 // ---------------------------------------------------------------------------
-export async function fetchCompetitorPages(keyword: string): Promise<CompetitorPage[]> {
+export async function fetchCompetitorPages(
+  keyword: string,
+  tenantId?: string,
+  siteId?: string | null,
+  spendContext?: SeoSpendContextResolver,
+): Promise<CompetitorPage[]> {
   const apiKey = process.env.SERPER_API_KEY;
   if (!apiKey) {
     logger.warn('[competitor-content] SERPER_API_KEY not set — skipping competitor fetch');
     return [];
   }
 
-  const { checkAndIncrementSeoSerperCap } = await import('./seoWorkflowHealthService');
-  if (!checkAndIncrementSeoSerperCap()) {
-    logger.warn(`[competitor-content] SEO Serper daily cap reached — skipping "${keyword}"`);
-    return [];
-  }
-
+  // tenantId/siteId are optional and default-resolved below so this function
+  // keeps compiling and working exactly as before for its one caller outside
+  // this file: routes/seo.ts's POST /competitor-brief calls
+  // fetchCompetitorPages(keyword) with no tenant context (out of scope for
+  // this change — routes are not in this lane's edit set; see the PR notes).
+  // runCompetitorContentAnalysis below always resolves and passes both
+  // explicitly, so its guarded calls — made from an already-resolved cron
+  // tenant — never hit this fallback or resolveDefaultSeoTenantId()'s "more
+  // than one SEO tenant" throw (see that resolver's warning in
+  // seoTenantContext.ts about calling it from anything automated).
+  let tid: string;
   try {
-    const res = await fetch('https://google.serper.dev/search', {
-      method: 'POST',
-      headers: {
-        'X-API-KEY': apiKey,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ q: keyword, gl: 'in', num: 10 }),
-      signal: AbortSignal.timeout(15000),
-    });
-
-    if (!res.ok) {
-      logger.warn(`[competitor-content] Serper API ${res.status} for "${keyword}"`);
-      return [];
-    }
-
-    const data = await res.json() as { organic?: Array<{ position: number; title: string; link: string; domain?: string; snippet?: string }> };
-    const organics = data.organic ?? [];
-
-    return organics.slice(0, 5).map(r => ({
-      position: r.position,
-      title: r.title,
-      link: r.link,
-      domain: r.domain ?? new URL(r.link).hostname,
-      snippet: r.snippet ?? '',
-    }));
+    tid = tenantId ?? await resolveDefaultSeoTenantId();
   } catch (e) {
-    logger.error(`[competitor-content] Serper error for "${keyword}":`, e instanceof Error ? e.message : String(e));
+    logger.warn('[competitor-content] could not resolve a tenant for this call — skipping competitor fetch:', e instanceof Error ? e.message : String(e));
     return [];
   }
+
+  return guardedSerperCall(
+    { tenantId: tid, siteId: siteId ?? null, spendContext, operation: 'competitor_search', label: `competitor-content "${keyword}"` },
+    async (markSpent) => {
+      try {
+        const res = await fetch('https://google.serper.dev/search', {
+          method: 'POST',
+          headers: {
+            'X-API-KEY': apiKey,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ q: keyword, gl: 'in', num: 10 }),
+          signal: AbortSignal.timeout(15000),
+        });
+        markSpent(); // the request left — record it even if the response is non-OK or parsing below fails
+
+        if (!res.ok) {
+          logger.warn(`[competitor-content] Serper API ${res.status} for "${keyword}"`);
+          return [];
+        }
+
+        const data = await res.json() as { organic?: Array<{ position: number; title: string; link: string; domain?: string; snippet?: string }> };
+        const organics = data.organic ?? [];
+
+        return organics.slice(0, 5).map(r => ({
+          position: r.position,
+          title: r.title,
+          link: r.link,
+          domain: r.domain ?? new URL(r.link).hostname,
+          snippet: r.snippet ?? '',
+        }));
+      } catch (e) {
+        logger.error(`[competitor-content] Serper error for "${keyword}":`, e instanceof Error ? e.message : String(e));
+        return [];
+      }
+    },
+    () => {
+      // Neutral on purpose: the guard blocks for several reasons (daily cap,
+      // per-site cap, paused site, plan limit) and logs the precise one
+      // itself. Naming a cause here would be a guess, and it was a wrong
+      // one — this line claimed "daily cap reached" for a paused site.
+      logger.warn(`[competitor-content] skipped by the SEO spend guard — "${keyword}" (reason logged above)`);
+      return [];
+    },
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -109,7 +146,7 @@ export async function analyzeCompetitorContent(
   // Learning loop: give the model historical context on how well this class of
   // opportunity has actually performed, when there's enough data to trust it.
   const { computeOpportunityTypeSuccessRates, formatHistoricalPerformanceNote } = await import('./seoDigestService');
-  const successRates = await computeOpportunityTypeSuccessRates();
+  const successRates = await computeOpportunityTypeSuccessRates(resolvedTenantId);
   const historicalNote = formatHistoricalPerformanceNote('content_gap', successRates);
 
   try {
@@ -172,10 +209,22 @@ Return ONLY valid JSON (no markdown):
 // ---------------------------------------------------------------------------
 // Main cron: run competitor content analysis for improvable keywords
 // ---------------------------------------------------------------------------
-export async function runCompetitorContentAnalysis(): Promise<{ analyzed: number; errors: number }> {
+export async function runCompetitorContentAnalysis(tenantId?: string): Promise<{ analyzed: number; errors: number }> {
   let analyzed = 0;
   let errors = 0;
-  const tenantId = await resolveDefaultSeoTenantId();
+  const tid = tenantId ?? await resolveDefaultSeoTenantId();
+
+  // Guard the paid Serper + Claude calls below on this tenant actually having
+  // registered SEO sites. keyword_rankings is already tenant-scoped, so a
+  // tenant with no registered sites should naturally have zero rows here —
+  // this is a belt-and-suspenders check against orphaned ranking rows (e.g. a
+  // site deregistered after rankings were recorded) still triggering paid calls.
+  const { listSeoSiteDomains } = await import('./seoSiteRegistry');
+  const registeredDomains = await listSeoSiteDomains(tid);
+  if (registeredDomains.length === 0) {
+    logger.warn(`[competitor-content] tenant ${tid} has no registered SEO sites — skipping, zero paid calls made`);
+    return { analyzed: 0, errors: 0 };
+  }
 
   try {
     // Keywords ranked 5-30 have the most improvement potential
@@ -187,7 +236,7 @@ export async function runCompetitorContentAnalysis(): Promise<{ analyzed: number
         AND tenant_id = $1
       ORDER BY keyword, recorded_date DESC
       LIMIT 10
-    `, [tenantId]);
+    `, [tid]);
 
     const keywords = result.rows as Array<{ keyword: string; client_domain: string; current_position: string }>;
     if (keywords.length === 0) {
@@ -200,11 +249,19 @@ export async function runCompetitorContentAnalysis(): Promise<{ analyzed: number
     // Learning loop: historical outcome success rates per opportunity type, computed
     // once per run and used to nudge priority scores (see applySuccessRateAdjustment).
     const { computeOpportunityTypeSuccessRates, applySuccessRateAdjustment } = await import('./seoDigestService');
-    const successRates = await computeOpportunityTypeSuccessRates();
+    const successRates = await computeOpportunityTypeSuccessRates(tid);
+
+    // Resolves each keyword row's client_domain to its seo_sites id, cached
+    // per domain for this run — several keyword rows can share the same
+    // client_domain (see createSeoSiteIdResolver's doc in seoSerperGuard.ts).
+    const resolveSiteId = createSeoSiteIdResolver(tid);
+    // See rankTrackingService for why this is per-run, not per-call.
+    const resolveSpendContext = createSeoSpendContextResolver(tid);
 
     for (const kw of keywords) {
       try {
-        const competitors = await fetchCompetitorPages(kw.keyword);
+        const siteId = await resolveSiteId(kw.client_domain);
+        const competitors = await fetchCompetitorPages(kw.keyword, tid, siteId, resolveSpendContext);
         if (competitors.length === 0) {
           logger.warn(`[competitor-content] No competitors found for "${kw.keyword}"`);
           errors++;
@@ -213,7 +270,7 @@ export async function runCompetitorContentAnalysis(): Promise<{ analyzed: number
 
         await new Promise(r => setTimeout(r, 1500)); // rate limit between Serper and Claude
 
-        const analysis = await analyzeCompetitorContent(kw.keyword, kw.client_domain, competitors, tenantId);
+        const analysis = await analyzeCompetitorContent(kw.keyword, kw.client_domain, competitors, tid);
         if (!analysis) {
           errors++;
           continue;
@@ -239,7 +296,7 @@ export async function runCompetitorContentAnalysis(): Promise<{ analyzed: number
             JSON.stringify(analysis.missing_questions),
             analysis.recommended_word_count,
             priorityScore,
-            tenantId,
+            tid,
           ],
         );
 

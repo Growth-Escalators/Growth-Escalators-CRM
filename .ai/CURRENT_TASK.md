@@ -2,6 +2,72 @@
 
 ## Active task
 
+**MULTI-TENANT SEO PLATFORM — PHASES 1–3 BUILT LOCALLY, NOTHING PUSHED (2026-08-05).**
+
+Branch `fix/wizmatch-scoring-pipeline`, local only. Plan:
+`~/.claude/plans/can-you-check-the-atomic-cascade.md`. Turning the single-property SEO learning loop
+into a multi-tenant, multi-platform service an agency can be sold as a per-site add-on.
+
+- **Phase 1** (`e0c0f248`) — tenant leaks closed, SEO gated behind `requireTenantFeature('seo')`,
+  adapter contract + cost-guard groundwork. Migration `0045`.
+- **Phase 2** (`0f8b4d55`) — `seo_sites` registry, nine hardcoded client-domain arrays deleted, and
+  **the C2 blocker fixed**: every SEO cron now sweeps per tenant, so enabling the add-on for a second
+  agency no longer kills every SEO cron for every tenant including GE's own. Migrations `0046`/`0047`.
+- **Phase 3** (`7fc5e72c`, `035b96a5`, `f06c6557`) — `SiteAdapter` implementations for git/WordPress/
+  Shopify, `site_changes` + `seo_site_snapshots` (migration `0048`), and `siteChangeService.ts`.
+- **Phase 4** (`95b10e7e`) — `/api/seo-changes` + the approvals UI, `seo_api_usage` (migration
+  `0049`), the per-tenant Serper cost guard wired into the four real spend sites, WordPress/Shopify
+  credential entry in the admin, and `src/utils/redactSecrets.ts`.
+
+**The invariant that governs everything from here:** nothing publishes to a client's live website
+without a recorded human approval. Three independent enforcement layers (DB CHECK, service-level
+assertion on the sole caller of `publishChange`, per-adapter re-check). Do not add a second caller of
+`provider.publishChange()` — a test fails if you do. Do not weaken
+`assertSiteChangeApproved`'s "status must be exactly `approved`".
+
+**Gates as of Phase 3:** build exit 0 · admin build exit 0 · `npm test` 2865 passing with the 7-file /
+21-failure pre-existing env-dependent baseline (see memory `project_local_test_env_failures`) ·
+`lint:tenant-scoping` zero new findings.
+
+**Blocked / owner-gated, unchanged:**
+- **Credential rotation** (Priority-1, checklist at `feat+contracts-esign/SECRETS-ROTATION.md`) —
+  the WordPress adapter is written but must not be enabled, and the legacy
+  `programmaticSeoService.publishToWordPress()` must not be retired, until this lands.
+- **Push/merge** — nothing pushed. This repo auto-deploys on push to `main`.
+- **The 3-client SEO data purge** — still gated on restore-testing a backup first.
+- `SITE_ADAPTER_ENABLED` defaults false and must stay false in production until Phase 4's approval UI
+  exists — there is currently no way for a human to approve anything through a UI.
+
+- **Phase 5** (`b7aaa9b0`, `26a8d434`, `44f2a015`, `74e320df`) — drift sweep + classifier, GSC and GA4
+  pulls as separate importable per-tenant services writing to Postgres, cost caps actually enforced.
+- **Phase 6** (`53e0230b`) — n8n retired (including two LIVE ungated fetches to the dead host),
+  workflows archived, docs rewritten, and all 65 live crons made observable.
+
+**All six phases are complete.** What remains is owner-gated only — see
+[`docs/go-live/OWNER_ACTION_LIST.md`](../docs/go-live/OWNER_ACTION_LIST.md): backups, the branch
+push, the credential rotation, and the retired-client purge (gated on a restore-tested backup).
+
+**Known gaps, stated rather than hidden:**
+- GA4 calls are not counted by the cost guard — `SeoCostGuardEstimatedCalls` has no `ga4Calls`
+  field, and reusing `gscCalls` would corrupt the real GSC cap counter.
+- The drift sweep's third URL source (top GSC URLs by impressions) is not implemented — no per-URL
+  GSC table exists and inventing one was correctly refused.
+- `hot_lead_alert` jobs have had **no consumer since n8n died** — `bookingService.ts` still creates
+  one per hot lead and nothing drains them. Pre-existing, documented in `jobDrainer.ts`, out of
+  scope for this work, but real.
+- `.claude/agents/seo-debugger.md` still describes the retired n8n system.
+
+**Credential correction, verified against `origin/main`:** the `tenant_integrations` store, its
+route and `credentialEncryption` are all on `main` today. What is missing there is a *consumer* —
+`programmaticSeoService.publishToWordPress()` is still the only reader of WordPress credentials and
+it reads `process.env`. So the WordPress remediation is: rotate the application password and
+**update** the `WP_AGEDDENTISTRY_*` Railway vars. Deleting them silently stops WordPress publishing
+until this branch ships.
+
+---
+
+## Prior entry — TWO-USER PILOT OPERATIONALLY READY (superseded above)
+
 **TWO-USER PILOT OPERATIONALLY READY (2026-07-29) — independently verified.**
 
 > **PILOT READY FOR LIMITED INTERNAL USE — TWO USERS · EXPLICIT CONFIG REDEPLOY PENDING**

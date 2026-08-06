@@ -9,7 +9,7 @@ import { SkeletonCard } from '../components/SkeletonLoader.jsx';
 import { useToast } from '../components/wizmatch/Toast.jsx';
 import { apiFetch, getPermissions } from '../lib/api.js';
 import { getAuthToken } from '../lib/auth.js';
-import { Plug, AlertTriangle, CheckCircle2, Clock, XCircle, ShieldOff, Mail } from 'lucide-react';
+import { Plug, AlertTriangle, CheckCircle2, Clock, XCircle, ShieldOff, Mail, Globe, ShoppingBag } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
 // Tenant Integrations settings page.
@@ -280,8 +280,117 @@ function SmtpIntegrationCard({ integration, isOwner, saving, onSave, onDisconnec
 // Any OTHER connected provider row (beyond the dedicated SMTP card above) —
 // status + a generic disconnect action, so a future provider doesn't need
 // its own bespoke card to at least be visible and disconnectable.
+
+/**
+ * WordPress + Shopify credential cards.
+ *
+ * The site adapters (src/modules/site/providers/) read credentials ONLY from
+ * the encrypted `tenant_integrations` store — they contain zero `process.env`
+ * reads by design, because the legacy WP_* variables are part of a live
+ * credential exposure. Without these two forms the only way to store a
+ * credential was a raw API call, which is not a thing to ask of an operator
+ * who is mid-way through closing that exposure.
+ *
+ * NOTE the split: credentials live here; the site's non-secret config (a
+ * WordPress base URL, Shopify's theme-snippet flag, a git repo/branch) lives
+ * on the SEO site registry, because `seo_sites.adapter_config` rejects any key
+ * matching /pass|secret|token|key|credential|auth/i server-side.
+ */
+function SiteCredentialCard({ provider, title, icon: Icon, iconTone, blurb, hint, fields, integration, isOwner, saving, onSave, onDisconnectRequest }) {
+  const [values, setValues] = useState(() => Object.fromEntries(fields.map(f => [f.name, ''])));
+  const [error, setError] = useState(null);
+  const status = integration?.status === 'connected' ? 'connected' : 'not_connected';
+  const info = statusInfo(status);
+  const StatusIcon = info.icon;
+  const canSubmit = fields.every(f => values[f.name].trim().length > 0) && !saving;
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    if (!canSubmit) return;
+    setError(null);
+    try {
+      await onSave(Object.fromEntries(fields.map(f => [f.name, values[f.name].trim()])));
+      // Cleared, never repopulated: PublicIntegration structurally carries no
+      // credential, so there is nothing to render back even if we wanted to.
+      setValues(Object.fromEntries(fields.map(f => [f.name, ''])));
+    } catch (err) {
+      setError(err?.message || 'Could not save those credentials.');
+    }
+  }
+
+  return (
+    <div className="bg-white rounded-xl border border-slate-200 p-5">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex items-start gap-3">
+          <div className={`w-10 h-10 rounded-lg ${iconTone} flex items-center justify-center flex-shrink-0`}>
+            <Icon className="w-5 h-5" />
+          </div>
+          <div>
+            <p className="font-semibold text-slate-900">{title}</p>
+            <p className="text-sm text-slate-500 mt-0.5 max-w-lg">{blurb}</p>
+          </div>
+        </div>
+        <span className={`shrink-0 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${info.badge}`}>
+          <StatusIcon className={`w-3.5 h-3.5 ${info.iconColor}`} />
+          {info.label}
+        </span>
+      </div>
+
+      {!isOwner ? (
+        <p className="mt-4 text-sm text-slate-500">
+          Only the tenant owner can connect this integration. You can see whether it is connected, but not change it.
+        </p>
+      ) : (
+        <>
+          {status === 'connected' && (
+            <div className="mt-4 flex items-center gap-3">
+              <button
+                type="button"
+                onClick={onDisconnectRequest}
+                className="px-4 py-2 text-sm border border-slate-200 rounded-lg text-slate-600 hover:border-red-300 hover:text-red-500 hover:bg-red-50 transition-colors"
+              >
+                Disconnect
+              </button>
+              <span className="text-xs text-slate-500">Saving again replaces the stored credentials.</span>
+            </div>
+          )}
+
+          <form onSubmit={handleSubmit} className="mt-4 space-y-3 max-w-md">
+            {fields.map(f => (
+              <div key={f.name}>
+                <label htmlFor={`${provider}-${f.name}`} className="block text-xs font-semibold text-slate-700 mb-1.5">{f.label}</label>
+                <input
+                  id={`${provider}-${f.name}`}
+                  type={f.secret ? 'password' : 'text'}
+                  autoComplete="off"
+                  value={values[f.name]}
+                  onChange={(e) => setValues(v => ({ ...v, [f.name]: e.target.value }))}
+                  placeholder={f.placeholder}
+                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-100 focus:border-sky-300"
+                />
+              </div>
+            ))}
+            {hint && <p className="text-xs text-slate-500">{hint}</p>}
+            {error && <p className="text-xs text-red-600">{error}</p>}
+            <button
+              type="submit"
+              disabled={!canSubmit}
+              className="px-4 py-2 text-sm rounded-lg bg-slate-900 text-white disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-800 transition-colors"
+            >
+              {saving ? 'Saving…' : status === 'connected' ? 'Replace credentials' : `Connect ${title}`}
+            </button>
+          </form>
+        </>
+      )}
+    </div>
+  );
+}
+
 function OtherIntegrationsList({ integrations, isOwner, onDisconnectRequest }) {
-  const others = (integrations || []).filter(i => i.provider !== 'email_smtp' && i.status === 'connected');
+  // Providers with a dedicated card above are excluded — listing them here
+  // too would show the same integration twice with two different controls.
+  const DEDICATED = ['email_smtp', 'wordpress', 'shopify'];
+  const others = (integrations || []).filter(i => !DEDICATED.includes(i.provider) && i.status === 'connected');
   if (others.length === 0) return null;
   return (
     <div className="bg-white rounded-xl border border-slate-200 p-5">
@@ -338,6 +447,8 @@ export default function IntegrationsPage() {
   const [tenantIntegrations, setTenantIntegrations] = useState([]);
   const [tiLoading, setTiLoading] = useState(true);
   const [smtpSaving, setSmtpSaving] = useState(false);
+  const [wpSaving, setWpSaving] = useState(false);
+  const [shopifySaving, setShopifySaving] = useState(false);
   const [tiDisconnectTarget, setTiDisconnectTarget] = useState(null); // provider name, or null
   const [tiDisconnectBusy, setTiDisconnectBusy] = useState(false);
   const [tiDisconnectErr, setTiDisconnectErr] = useState(null);
@@ -357,6 +468,8 @@ export default function IntegrationsPage() {
   useEffect(() => { loadTenantIntegrations(); }, [loadTenantIntegrations]);
 
   const smtpIntegration = tenantIntegrations.find(i => i.provider === 'email_smtp') || null;
+  const wordpressIntegration = tenantIntegrations.find(i => i.provider === 'wordpress') || null;
+  const shopifyIntegration = tenantIntegrations.find(i => i.provider === 'shopify') || null;
 
   // PUT is owner-gated server-side; on success, merge the returned row (never
   // the credentials we just sent) into local state so the card flips to
@@ -375,6 +488,28 @@ export default function IntegrationsPage() {
       setSmtpSaving(false);
     }
   }
+
+  async function saveSiteCredential(provider, credentials, setSaving, metadata) {
+    setSaving(true);
+    try {
+      const data = await apiFetch(`/api/tenant-integrations/${provider}`, {
+        method: 'PUT',
+        body: JSON.stringify({ credentials, ...(metadata ? { metadata } : {}) }),
+      });
+      setTenantIntegrations(prev => [...prev.filter(i => i.provider !== provider), data.integration]);
+      showSuccess(`${provider} connected`);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  // Field names match the adapters' credential interfaces exactly
+  // (WordPressCredentials / ShopifyCredentials). A mismatch here surfaces at
+  // call time as `missing_configuration` with no hint as to why.
+  const handleWordPressSave = (c) =>
+    saveSiteCredential('wordpress', c, setWpSaving, { userMasked: maskIdentifier(c.username) });
+  const handleShopifySave = (c) =>
+    saveSiteCredential('shopify', c, setShopifySaving, { shop: c.shop });
 
   async function runTiDisconnect() {
     if (!tiDisconnectTarget) return;
@@ -522,6 +657,40 @@ export default function IntegrationsPage() {
                       saving={smtpSaving}
                       onSave={handleSmtpSave}
                       onDisconnectRequest={() => setTiDisconnectTarget('email_smtp')}
+                    />
+                    <SiteCredentialCard
+                      provider="wordpress"
+                      title="WordPress"
+                      icon={Globe}
+                      iconTone="bg-slate-100 text-slate-600"
+                      blurb="Publish approved SEO page changes to this tenant's WordPress site."
+                      hint="This is a WordPress Application Password (WP admin → Users → your profile → Application Passwords), NOT the account login password. The site's URL is set on its SEO site record, not here."
+                      fields={[
+                        { name: 'username', label: 'WordPress username', placeholder: 'admin' },
+                        { name: 'applicationPassword', label: 'Application password', secret: true, placeholder: 'xxxx xxxx xxxx xxxx' },
+                      ]}
+                      integration={wordpressIntegration}
+                      isOwner={isOwner}
+                      saving={wpSaving}
+                      onSave={handleWordPressSave}
+                      onDisconnectRequest={() => setTiDisconnectTarget('wordpress')}
+                    />
+                    <SiteCredentialCard
+                      provider="shopify"
+                      title="Shopify"
+                      icon={ShoppingBag}
+                      iconTone="bg-emerald-50 text-emerald-600"
+                      blurb="Publish approved SEO page changes to this tenant's Shopify storefront."
+                      hint="Admin API access token from a custom app. Structured data also needs the theme snippet enabled on the site's SEO record — without it the metafield is written but never renders."
+                      fields={[
+                        { name: 'shop', label: 'Shop domain', placeholder: 'example.myshopify.com' },
+                        { name: 'accessToken', label: 'Admin API access token', secret: true, placeholder: 'shpat_…' },
+                      ]}
+                      integration={shopifyIntegration}
+                      isOwner={isOwner}
+                      saving={shopifySaving}
+                      onSave={handleShopifySave}
+                      onDisconnectRequest={() => setTiDisconnectTarget('shopify')}
                     />
                     <OtherIntegrationsList
                       integrations={tenantIntegrations}

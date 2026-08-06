@@ -211,8 +211,13 @@ async function fetchSEOWorkflows(tenantId: string): Promise<Record<string, unkno
   try {
     const { collectSEOWorkflowHealth } = await import('../services/intelligenceDataCollector');
     const health = await collectSEOWorkflowHealth(tenantId);
+    // n8n_alive intentionally omitted here — n8n is decommissioned, and unlike
+    // the admin dashboard badge (kept stable for backward compat, see
+    // intelligenceDataCollector.ts) this object is read directly by the AI
+    // copilot, which would otherwise state a fabricated "n8n is alive" as
+    // fact. `healthy`/`total`/`broken_critical` already reflect the real
+    // signal: native service output freshness.
     const result = {
-      n8n_alive: health.n8nAlive,
       healthy: health.healthyCount,
       total: health.totalCount,
       broken_critical: health.brokenCritical.map(w => ({ name: w.name, days_overdue: w.daysSince })),
@@ -300,7 +305,7 @@ const TOOLS = [
   },
   {
     name: 'trigger_seo_workflow',
-    description: 'Trigger a specific n8n SEO workflow. ALWAYS confirm with user before calling this.',
+    description: 'Trigger a specific SEO workflow — runs the backend-native service directly (n8n has been decommissioned). ALWAYS confirm with user before calling this.',
     input_schema: {
       type: 'object',
       properties: {
@@ -475,12 +480,27 @@ router.post('/chat', async (req: Request, res: Response) => {
     // Build compact data snapshot (used in system prompt)
     const snapshot = await buildDataSnapshot(req.user!.tenantId);
 
+    // The SEO client list used to be three domains hardcoded into this prompt,
+    // so every tenant's Co-Pilot was told it worked on Growth Escalators'
+    // clients — naming three retired clients to whoever was asking. Sourced
+    // from the caller's own site registry now; empty is a valid answer.
+    let seoClientsLine = 'CLIENTS: SEO — none registered yet.';
+    try {
+      const { listSeoSiteDomains } = await import('../services/seoSiteRegistry');
+      const domains = await listSeoSiteDomains(req.user!.tenantId);
+      if (domains.length > 0) seoClientsLine = `CLIENTS: SEO — ${domains.join(', ')}.`;
+    } catch (e) {
+      // A registry read failure must not take the whole assistant down, but it
+      // must also not silently fall back to somebody else's client list.
+      logger.warn('[copilot] could not load SEO site list for the system prompt:', e instanceof Error ? e.message : String(e));
+    }
+
     const systemPrompt = `You are the Growth Escalators Operations Co-Pilot — Jatin's private AI assistant.
 You have access to live business data and can take real actions via tools.
 
 BUSINESS: Performance marketing agency, Jaipur, India.
 TEAM: Jatin (founder/admin), Sakcham (sales/ads manager), Keshav (video editor).
-CLIENTS: SEO — aarohaom.com, blackpandaenterprises.com, ageddentistry.org.
+${seoClientsLine}
 
 PERSONALITY: Direct. Concise. Metric-focused. No filler words. Lead with numbers.
 FORMAT: Use bullet points for lists. Bold for key numbers. Single sentences per point.

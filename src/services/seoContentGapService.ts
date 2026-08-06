@@ -1,10 +1,23 @@
 import { pool } from '../db/index';
 import logger from '../utils/logger';
 import { resolveDefaultSeoTenantId } from './seoTenantContext';
+import { listSeoSiteDomains } from './seoSiteRegistry';
+import {
+  createSeoSiteIdResolver,
+  createSeoSpendContextResolver,
+  guardedSerperCall,
+  type SeoSpendContextResolver,
+} from './seoSerperGuard';
 
 // ---------------------------------------------------------------------------
 // Bootstrap content calendar table (idempotent — safe to call every run)
 // ---------------------------------------------------------------------------
+// No tenantId parameter: this is shared-infrastructure DDL (the table and its
+// indexes), not a tenant-scoped row write, so there's nothing for a tenantId
+// to do here — unlike runContentGapAnalysis below, this function never called
+// resolveDefaultSeoTenantId() and doesn't need to. What actually needed
+// fixing was the 3-column unique index below, which is what let two tenants'
+// rows collide in the first place — see the comment on it.
 export async function ensureContentCalendarTable(): Promise<void> {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS seo_content_calendar (
@@ -26,10 +39,30 @@ export async function ensureContentCalendarTable(): Promise<void> {
       updated_at TIMESTAMP DEFAULT NOW()
     )
   `);
-  // Avoid duplicate entries
+  // The legacy 3-column index (client_domain, keyword, content_type) is NOT
+  // created here any more, and migration 0047 drops it.
+  //
+  // The condition its previous comment named — "code still writes against it
+  // in-flight" — is satisfied: every ON CONFLICT in the repo now names the
+  // 4-column tenant-scoped target. Leaving the CREATE here would have quietly
+  // undone 0047 on the very next boot, because this ensure-hook runs at
+  // startup and IF NOT EXISTS would have put the index straight back.
+  //
+  // It had to go, not just become redundant: UNIQUE on those three columns
+  // with no tenant made the combination GLOBALLY exclusive, so two agencies
+  // could not both track the same keyword on the same domain.
+  //
+  // Tenant-scoped replacement (matches migration 0045's
+  // seo_content_calendar_tenant_unique_idx exactly). Without tenant_id in the
+  // conflict target, two tenants both targeting the same domain/keyword/type
+  // collide on ON CONFLICT DO NOTHING and one tenant's row silently vanishes —
+  // this is the index runContentGapAnalysis and seoContentDecayService now
+  // write against. Created here too (not just in the migration) so a fresh
+  // database bootstrapped straight from this ensure-hook, without migrations
+  // having run yet, still gets it.
   await pool.query(`
-    CREATE UNIQUE INDEX IF NOT EXISTS seo_content_calendar_unique_idx
-    ON seo_content_calendar(client_domain, keyword, content_type)
+    CREATE UNIQUE INDEX IF NOT EXISTS seo_content_calendar_tenant_unique_idx
+    ON seo_content_calendar(tenant_id, client_domain, keyword, content_type)
   `);
   await pool.query(`CREATE INDEX IF NOT EXISTS seo_calendar_status_idx ON seo_content_calendar(status)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS seo_calendar_client_idx ON seo_content_calendar(client_domain)`);
@@ -40,24 +73,39 @@ const SERPER_API_KEY = process.env.SERPER_API_KEY;
 
 interface SerperResult { title: string; link: string; snippet: string; position?: number }
 
-async function serperSearch(query: string, num = 10): Promise<SerperResult[]> {
+async function serperSearch(
+  query: string,
+  num: number,
+  tenantId: string,
+  siteId: string | null,
+  spendContext?: SeoSpendContextResolver,
+): Promise<SerperResult[]> {
   if (!SERPER_API_KEY) return [];
-  const { checkAndIncrementSeoSerperCap } = await import('./seoWorkflowHealthService');
-  if (!checkAndIncrementSeoSerperCap()) {
-    logger.warn(`[content-gap] SEO Serper daily cap reached — skipping query "${query}"`);
-    return [];
-  }
-  try {
-    const res = await fetch(SERPER_API_URL, {
-      method: 'POST',
-      headers: { 'X-API-KEY': SERPER_API_KEY, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ q: query, gl: 'in', hl: 'en', num }),
-      signal: AbortSignal.timeout(15000),
-    });
-    if (!res.ok) return [];
-    const data = await res.json() as { organic?: SerperResult[] };
-    return data.organic ?? [];
-  } catch { return []; }
+  return guardedSerperCall(
+    { tenantId, siteId, spendContext, operation: 'content_gap_search', label: `content-gap "${query}"` },
+    async (markSpent) => {
+      try {
+        const res = await fetch(SERPER_API_URL, {
+          method: 'POST',
+          headers: { 'X-API-KEY': SERPER_API_KEY, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ q: query, gl: 'in', hl: 'en', num }),
+          signal: AbortSignal.timeout(15000),
+        });
+        markSpent(); // the request left — record it even if the response is non-OK or parsing below fails
+        if (!res.ok) return [];
+        const data = await res.json() as { organic?: SerperResult[] };
+        return data.organic ?? [];
+      } catch { return []; }
+    },
+    () => {
+      // Neutral on purpose: the guard blocks for several reasons (daily cap,
+      // per-site cap, paused site, plan limit) and logs the precise one
+      // itself. Naming a cause here would be a guess, and it was a wrong
+      // one — this line claimed "daily cap reached" for a paused site.
+      logger.warn(`[content-gap] skipped by the SEO spend guard — query "${query}" (reason logged above)`);
+      return [];
+    },
+  );
 }
 
 function delay(ms: number): Promise<void> { return new Promise(r => setTimeout(r, ms)); }
@@ -65,7 +113,7 @@ function delay(ms: number): Promise<void> { return new Promise(r => setTimeout(r
 // ---------------------------------------------------------------------------
 // Run content gap analysis for all SEO clients
 // ---------------------------------------------------------------------------
-export async function runContentGapAnalysis(): Promise<{ gaps: number; opportunities: number }> {
+export async function runContentGapAnalysis(tenantId?: string): Promise<{ gaps: number; opportunities: number }> {
   if (!SERPER_API_KEY) {
     const msg = 'content-gap: SERPER_API_KEY not set on Railway worker — content gap analysis cannot run';
     logger.error(`[content-gap] ${msg}`);
@@ -78,19 +126,37 @@ export async function runContentGapAnalysis(): Promise<{ gaps: number; opportuni
   }
 
   let gaps = 0, opportunities = 0;
-  const tenantId = await resolveDefaultSeoTenantId();
+  const tid = tenantId ?? await resolveDefaultSeoTenantId();
+
+  // Guard the paid Serper calls below on the site registry directly, not just
+  // on client_knowledge_base coming back empty. A tenant can in principle have
+  // rows in client_knowledge_base (stale, or migrated from elsewhere) with
+  // every one of its seo_sites deactivated — the registry, not the knowledge
+  // base, is the authority on "does this tenant have anything registered".
+  const registeredDomains = await listSeoSiteDomains(tid);
+  if (registeredDomains.length === 0) {
+    logger.warn(`[content-gap] tenant ${tid} has no registered SEO sites — skipping (0 Serper calls)`);
+    return { gaps: 0, opportunities: 0 };
+  }
 
   // Learning loop: historical outcome success rates per opportunity type, computed
   // once per run and used to nudge priority scores (see applySuccessRateAdjustment).
   const { computeOpportunityTypeSuccessRates, applySuccessRateAdjustment } = await import('./seoDigestService');
   const successRates = await computeOpportunityTypeSuccessRates();
 
+  // Resolves each client's own domain to its seo_sites id once per run, not
+  // once per keyword/competitor search below — see createSeoSiteIdResolver's
+  // doc in seoSerperGuard.ts.
+  const resolveSiteId = createSeoSiteIdResolver(tid);
+  // See rankTrackingService for why this is per-run, not per-call.
+  const resolveSpendContext = createSeoSpendContextResolver(tid);
+
   // Get all clients with keywords and domain
   const clientsR = await pool.query(`
     SELECT project_name, primary_keywords, competitors, client_domain
     FROM client_knowledge_base
     WHERE primary_keywords IS NOT NULL AND client_domain IS NOT NULL AND client_domain != '' AND tenant_id = $1
-  `, [tenantId]);
+  `, [tid]);
 
   for (const client of clientsR.rows as Array<{ project_name: string; primary_keywords: string; competitors: string; client_domain: string }>) {
     const keywords = client.primary_keywords.split(',').map(k => k.trim()).filter(Boolean);
@@ -111,17 +177,23 @@ export async function runContentGapAnalysis(): Promise<{ gaps: number; opportuni
       })
       .filter(Boolean) as string[];
 
+    // Resolved once per client, reused for every keyword/competitor search
+    // below for this client — every search in this block is guarding spend
+    // attributable to analysing client.client_domain, even the ones whose
+    // Serper query text targets a competitor's `site:` filter.
+    const clientSiteId = await resolveSiteId(client.client_domain);
+
     for (const keyword of keywords.slice(0, 8)) { // Max 8 keywords per client per run
       // Check if already analyzed in last 30 days
       const existing = await pool.query(
         `SELECT id FROM content_gap_analysis WHERE project_name = $1 AND target_keyword = $2 AND analysed_at > NOW() - INTERVAL '30 days' AND tenant_id = $3 LIMIT 1`,
-        [client.project_name, keyword, tenantId],
+        [client.project_name, keyword, tid],
       );
       if ((existing.rows as unknown[]).length > 0) continue;
 
       // 1. Check client's own ranking
       await delay(2000);
-      const ownResults = await serperSearch(keyword, 20);
+      const ownResults = await serperSearch(keyword, 20, tid, clientSiteId, resolveSpendContext);
       let ourPosition: number | null = null;
       let ourUrl: string | null = null;
       for (const r of ownResults) {
@@ -139,7 +211,7 @@ export async function runContentGapAnalysis(): Promise<{ gaps: number; opportuni
 
       for (const compDomain of competitorDomains.slice(0, 3)) {
         await delay(2000);
-        const compResults = await serperSearch(`site:${compDomain} ${keyword}`, 5);
+        const compResults = await serperSearch(`site:${compDomain} ${keyword}`, 5, tid, clientSiteId, resolveSpendContext);
         for (const r of compResults) {
           competitorUrls.push(r.link);
           // Extract topics from titles
@@ -181,7 +253,7 @@ export async function runContentGapAnalysis(): Promise<{ gaps: number; opportuni
            RETURNING id`,
           [client.project_name, keyword, ourUrl, ourPosition,
            JSON.stringify(competitorUrls), JSON.stringify([...new Set(topicsMissing)]),
-           JSON.stringify([...new Set(questionsMissing)]), priorityScore, client.client_domain, tenantId],
+           JSON.stringify([...new Set(questionsMissing)]), priorityScore, client.client_domain, tid],
         );
         const gapId = (gapInsert.rows as Array<{ id: string }>)[0]?.id;
         gaps++;
@@ -199,7 +271,7 @@ export async function runContentGapAnalysis(): Promise<{ gaps: number; opportuni
         // Dedup opportunities
         const existingOpp = await pool.query(
           `SELECT id FROM seo_opportunities WHERE project_name = $1 AND description LIKE $2 AND identified_at > NOW() - INTERVAL '30 days' AND tenant_id = $3 LIMIT 1`,
-          [client.project_name, `%${keyword}%`, tenantId],
+          [client.project_name, `%${keyword}%`, tid],
         );
         let opportunityId: string | null = null;
         if ((existingOpp.rows as unknown[]).length === 0) {
@@ -207,7 +279,7 @@ export async function runContentGapAnalysis(): Promise<{ gaps: number; opportuni
             `INSERT INTO seo_opportunities (id, project_name, opportunity_type, description, estimated_impact, effort_level, status, identified_at, client_domain, tenant_id)
              VALUES (gen_random_uuid(), $1, 'content_gap', $2, $3, $4, 'open', NOW(), $5, $6)
              RETURNING id`,
-            [client.project_name, desc, impact, effort, client.client_domain, tenantId],
+            [client.project_name, desc, impact, effort, client.client_domain, tid],
           );
           opportunityId = (oppInsert.rows as Array<{ id: string }>)[0]?.id ?? null;
           opportunities++;
@@ -215,11 +287,17 @@ export async function runContentGapAnalysis(): Promise<{ gaps: number; opportuni
 
         // Auto-populate content calendar from gap, linked to the opportunity when one
         // was actually created (dedup hits leave opportunityId null — nothing to link).
+        //
+        // tenant_id is bound explicitly and the conflict target is the 4-column
+        // tenant-scoped index (see ensureContentCalendarTable above and
+        // seoContentDecayService's matching insert) — the old 3-column target
+        // relied on the column's single-tenant DEFAULT and let two tenants'
+        // rows for the same domain/keyword/type collide under DO NOTHING.
         try {
           await pool.query(`
-            INSERT INTO seo_content_calendar (client_domain, keyword, content_type, title, status, priority, source, source_id, opportunity_id)
-            VALUES ($1, $2, 'blog', $3, 'planned', $4, 'content_gap', $5, $6)
-            ON CONFLICT (client_domain, keyword, content_type) DO NOTHING
+            INSERT INTO seo_content_calendar (client_domain, keyword, content_type, title, status, priority, source, source_id, opportunity_id, tenant_id)
+            VALUES ($1, $2, 'blog', $3, 'planned', $4, 'content_gap', $5, $6, $7)
+            ON CONFLICT (tenant_id, client_domain, keyword, content_type) DO NOTHING
           `, [
             client.client_domain,
             keyword,
@@ -227,6 +305,7 @@ export async function runContentGapAnalysis(): Promise<{ gaps: number; opportuni
             priorityScore >= 80 ? 'high' : priorityScore >= 60 ? 'medium' : 'low',
             gapId,
             opportunityId,
+            tid,
           ]);
         } catch (calErr) {
           logger.warn(`[content-gap] calendar insert skipped: ${calErr instanceof Error ? calErr.message : String(calErr)}`);

@@ -130,6 +130,20 @@ function generateFallbackContent(pageTitle: string): {
 
 // ---------------------------------------------------------------------------
 // Publish to WordPress as draft
+//
+// tenant-scoping caveat (SEO multi-tenant audit, 2026-08): the WP target
+// below is NOT resolved per-tenant — WP_AGEDDENTISTRY_URL/USER/PASS are
+// global env vars, always pointing at GE's own ageddentistry.org site no
+// matter which tenantId called generateLocationPages()/
+// publishPendingToWordPress() above. The tenantId those two functions now
+// accept only scopes the client_pages DB rows; it does NOT change where
+// content actually gets published. Left as-is deliberately — a credential
+// rotation is in flight and a site-adapter seam (per-tenant WP target) is
+// planned for a later phase. Until that lands, ANY tenant invoking these
+// functions would draft pages onto GE's own AGeD WordPress site, not
+// their own — this whole module is written for one specific client
+// (AGeD/ageddentistry.org: see AGED_PAGES above), not a generic multi-site
+// generator, so there is no "other tenant's site" for it to target yet.
 // ---------------------------------------------------------------------------
 async function publishToWordPress(
   pageData: { title: string; content_html: string; meta_description: string },
@@ -176,9 +190,9 @@ async function publishToWordPress(
 // ---------------------------------------------------------------------------
 // Generate all location pages
 // ---------------------------------------------------------------------------
-export async function generateLocationPages(): Promise<{ generated: number; wpPublished: number; errors: number }> {
+export async function generateLocationPages(tenantId?: string): Promise<{ generated: number; wpPublished: number; errors: number }> {
   await ensureClientPagesTable();
-  const tenantId = await resolveDefaultSeoTenantId();
+  const resolvedTenantId = tenantId ?? await resolveDefaultSeoTenantId();
 
   let generated = 0, wpPublished = 0, errors = 0;
 
@@ -191,7 +205,7 @@ export async function generateLocationPages(): Promise<{ generated: number; wpPu
       try {
         const existing = await pool.query(
           `SELECT id FROM client_pages WHERE client_domain = 'ageddentistry.org' AND page_slug = $1 AND tenant_id = $2`,
-          [slug, tenantId],
+          [slug, resolvedTenantId],
         );
         if (existing.rows.length > 0) {
           logger.info(`[prog-seo] ${location} already exists — skipping`);
@@ -218,7 +232,7 @@ export async function generateLocationPages(): Promise<{ generated: number; wpPu
           'ageddentistry.org', slug,
           wpResult ? 'draft_wp' : 'draft_local',
           content.meta_description, content.content_html,
-          tenantId,
+          resolvedTenantId,
         ],
       );
 
@@ -250,16 +264,16 @@ export async function generateLocationPages(): Promise<{ generated: number; wpPu
 // ---------------------------------------------------------------------------
 // Publish pending pages to WordPress (ones stored as draft_local)
 // ---------------------------------------------------------------------------
-export async function publishPendingToWordPress(): Promise<{ published: number; failed: number; urls: string[] }> {
+export async function publishPendingToWordPress(tenantId?: string): Promise<{ published: number; failed: number; urls: string[] }> {
   await ensureClientPagesTable();
-  const tenantId = await resolveDefaultSeoTenantId();
+  const resolvedTenantId = tenantId ?? await resolveDefaultSeoTenantId();
 
   const result = await pool.query(
     `SELECT id, page_title, page_slug, content, meta_description
      FROM client_pages
      WHERE client_domain = 'ageddentistry.org' AND status = 'draft_local' AND tenant_id = $1
      ORDER BY id`,
-    [tenantId],
+    [resolvedTenantId],
   );
 
   let published = 0, failed = 0;
@@ -286,7 +300,7 @@ export async function publishPendingToWordPress(): Promise<{ published: number; 
         await pool.query(
           `UPDATE client_pages SET status = 'draft_wp', wp_post_id = $1, page_url = $2
            WHERE client_domain = 'ageddentistry.org' AND page_slug = $3 AND tenant_id = $4`,
-          [wpResult.wpPageId, wpResult.url, page.page_slug, tenantId],
+          [wpResult.wpPageId, wpResult.url, page.page_slug, resolvedTenantId],
         );
         published++;
         urls.push(wpResult.url);

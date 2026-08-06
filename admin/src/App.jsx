@@ -35,6 +35,7 @@ const AuditPage = lazy(() => import('./pages/AuditPage.jsx'));
 const DashboardPage = lazy(() => import('./pages/DashboardPage.jsx'));
 const AnalyticsPage = lazy(() => import('./pages/AnalyticsPage.jsx'));
 const SEOPage = lazy(() => import('./pages/SEOPage.jsx'));
+const SeoApprovalsPage = lazy(() => import('./pages/SeoApprovalsPage.jsx'));
 const IntelligencePage = lazy(() => import('./pages/IntelligencePage.jsx'));
 const WhatsAppTemplatesPage = lazy(() => import('./pages/WhatsAppTemplatesPage.jsx'));
 const OutboundPage = lazy(() => import('./pages/OutboundPage.jsx'));
@@ -350,6 +351,11 @@ export default function App() {
             <Route path="/marketing" element={<Navigate to="/ads?tab=accounts" replace />} />
             <Route path="/analytics" element={<PrivateRoute><AnalyticsPage /></PrivateRoute>} />
             <Route path="/seo" element={<PrivateRoute><SEOPage /></PrivateRoute>} />
+            {/* Wrapped in AppLayout, unlike /seo above. SEOPage renders its own
+                bare <Sidebar/>, so it has no toast host and no branded shell —
+                the known defect that would break a white-label demo on the very
+                page being sold. The approvals queue is not going to repeat it. */}
+            <Route path="/seo/approvals" element={<PrivateRoute><AppLayout><SeoApprovalsPage /></AppLayout></PrivateRoute>} />
             <Route path="/intelligence" element={<PrivateRoute><IntelligencePage /></PrivateRoute>} />
             <Route path="/whatsapp-templates" element={<PrivateRoute><WhatsAppTemplatesPage /></PrivateRoute>} />
             <Route path="/outbound" element={<PrivateRoute><OutboundPage /></PrivateRoute>} />

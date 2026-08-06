@@ -22,7 +22,6 @@ export interface SEOWorkflowCheck {
 }
 
 export interface SEOWorkflowHealth {
-  n8nAlive: boolean;
   workflows: SEOWorkflowCheck[];
   brokenCritical: SEOWorkflowCheck[];
   allHealthy: boolean;
@@ -30,24 +29,22 @@ export interface SEOWorkflowHealth {
   totalCount: number;
 }
 
-const N8N_BASE = process.env.N8N_BASE_URL || 'https://primary-production-6c6f5.up.railway.app';
-
+// n8n has been decommissioned — the workflow-freshness checks below already
+// read straight from the native src/services/seo* services' own output
+// tables, so they never depended on n8n being reachable. The `n8nAlive`
+// field is GONE, not merely stubbed: its only consumer was an admin badge
+// that rendered a green "n8n Online" light, and a hardcoded `true` there
+// asserted a decommissioned service was healthy. Removed at both ends.
+// (hardcoded true, not a live probe) purely because admin/IntelligencePage.jsx
+// still renders it as an "n8n Online/Offline" badge; a live check could only
+// ever report Offline against a host that no longer exists, which is exactly
+// the false-alarm noise this cleanup removed everywhere else. The admin lane
+// owns retiring that badge — see PR discussion / handoff note.
 export async function collectSEOWorkflowHealth(tenantId?: string): Promise<SEOWorkflowHealth> {
   const now = new Date();
   const resolvedTenantId = tenantId ?? await resolveDefaultSeoTenantId();
 
-  // Step 1: Check n8n is alive
-  let n8nAlive = false;
-  try {
-    const res = await fetch(`${N8N_BASE}/healthz`, {
-      signal: AbortSignal.timeout(5000),
-    });
-    n8nAlive = res.ok;
-  } catch {
-    n8nAlive = false;
-  }
-
-  // Step 2: Per-workflow checks via output table freshness
+  // Per-workflow checks via output table freshness
   type CheckFn = () => Promise<{ lastRun: string | null; daysSince: number; total: number | null; keywordsTracked?: number | null; healthy: boolean }>;
 
   const workflowDefs: Array<{ id: string; name: string; schedule: string; critical: boolean; check: CheckFn }> = [
@@ -152,7 +149,7 @@ export async function collectSEOWorkflowHealth(tenantId?: string): Promise<SEOWo
   const allHealthy     = results.every(r => r.healthy);
   const healthyCount   = results.filter(r => r.healthy).length;
 
-  return { n8nAlive, workflows: results, brokenCritical, allHealthy, healthyCount, totalCount: results.length };
+  return { workflows: results, brokenCritical, allHealthy, healthyCount, totalCount: results.length };
 }
 
 // ---------------------------------------------------------------------------
@@ -252,17 +249,23 @@ export interface AgencyDailyData {
 // System error collector
 // ---------------------------------------------------------------------------
 
-export async function collectSystemErrors(): Promise<SystemError[]> {
+export async function collectSystemErrors(tenantId?: string): Promise<SystemError[]> {
   const detected: SystemError[] = [];
 
-  // Failed jobs
+  // Failed jobs. jobs.tenant_id is nullable (schema.ts) — unlike the tables
+  // fixed below, a NULL here can be a genuine tenant-agnostic system job, not
+  // just an unbackfilled row, so this pulls in both this tenant's own failed
+  // jobs and true system-wide ones rather than excluding NULLs outright
+  // (tenant-isolation audit, 2026-08-05 — this read had no tenant filter at
+  // all before, so it was already pooling every tenant's job failures into
+  // GE's system-error report).
   await pool.query(`
     SELECT job_type, error_message, COUNT(*) AS cnt
     FROM jobs
-    WHERE status = 'failed' AND created_at > NOW() - INTERVAL '24 hours'
+    WHERE (tenant_id = $1 OR tenant_id IS NULL) AND status = 'failed' AND created_at > NOW() - INTERVAL '24 hours'
     GROUP BY job_type, error_message
     ORDER BY cnt DESC LIMIT 5
-  `).then(r => {
+  `, [tenantId ?? null]).then(r => {
     for (const row of r.rows as Array<{ job_type: string; error_message: string; cnt: string }>) {
       if (Number(row.cnt) > 0) {
         detected.push({
@@ -275,25 +278,25 @@ export async function collectSystemErrors(): Promise<SystemError[]> {
     }
   }).catch(() => {});
 
-  // Sequence enrolment errors
+  // Sequence enrolment errors — sequence_enrolments.tenant_id is NOT NULL.
   await pool.query(`
     SELECT COUNT(*) AS cnt FROM sequence_enrolments
-    WHERE status = 'error' AND updated_at > NOW() - INTERVAL '24 hours'
-  `).then(r => {
+    WHERE tenant_id = $1 AND status = 'error' AND updated_at > NOW() - INTERVAL '24 hours'
+  `, [tenantId ?? null]).then(r => {
     const cnt = Number((r.rows[0] as { cnt: string }).cnt ?? 0);
     if (cnt > 0) detected.push({ source: 'sequences', pattern: 'Email sequence enrolment errors', count: cnt });
   }).catch(() => {});
 
   // (ClickUp task-creation failure check removed — ClickUp dropped 2026-05-09)
 
-  // Generic audit errors
+  // Generic audit errors — audit_events.tenant_id is NOT NULL.
   await pool.query(`
     SELECT action, COUNT(*) AS cnt
     FROM audit_events
-    WHERE action LIKE '%error%' OR action LIKE '%failed%'
+    WHERE tenant_id = $1 AND (action LIKE '%error%' OR action LIKE '%failed%')
       AND created_at > NOW() - INTERVAL '24 hours'
     GROUP BY action ORDER BY cnt DESC LIMIT 3
-  `).then(r => {
+  `, [tenantId ?? null]).then(r => {
     for (const row of r.rows as Array<{ action: string; cnt: string }>) {
       const cnt = Number(row.cnt);
       if (cnt > 2) detected.push({ source: 'audit', pattern: row.action, count: cnt });
@@ -669,7 +672,7 @@ async function _collectDailyDataInner(client: Queryable, errors: string[]): Prom
   logger.info('[intel-collector] Collecting SEO workflow health...');
   // -------------------------------------------------------------------------
   let seoWorkflows: SEOWorkflowHealth = {
-    n8nAlive: false, workflows: [], brokenCritical: [],
+    workflows: [], brokenCritical: [],
     allHealthy: false, healthyCount: 0, totalCount: 0,
   };
   seoWorkflows = await withTimeout(
@@ -685,7 +688,7 @@ async function _collectDailyDataInner(client: Queryable, errors: string[]): Prom
   // -------------------------------------------------------------------------
   let systemErrors: SystemError[] = [];
   systemErrors = await withTimeout(
-    collectSystemErrors(),
+    collectSystemErrors(tenantId || undefined),
     'system errors',
     systemErrors,
     5000,
@@ -697,6 +700,10 @@ async function _collectDailyDataInner(client: Queryable, errors: string[]): Prom
   // -------------------------------------------------------------------------
   let outreachVelocity = { enrichedToday: 0, repliedToday: 0, interestedPending: 0 };
   try {
+    // outreach_leads has no tenant_id column at all (ensureOutreachLeadsTable
+    // in outreachLeadsService.ts) — it predates multi-tenancy and is still
+    // GE's own outbound sales-lead table only, so there is nothing to bind
+    // here yet. Not the same situation as the sections below.
     const enriched = await pool.query(
       `SELECT COUNT(*) AS count FROM outreach_leads WHERE enriched_at >= CURRENT_DATE AND enriched_at < CURRENT_DATE + 1`
     );
@@ -721,13 +728,17 @@ async function _collectDailyDataInner(client: Queryable, errors: string[]): Prom
   // -------------------------------------------------------------------------
   let contentCalendar = { planned: 0, writing: 0, overdue: 0 };
   try {
+    // seo_content_calendar has been a tenant_id NOT NULL Drizzle-tracked
+    // table since migration 0035/0045 (see schema.ts) — this read predates
+    // that and was never updated to filter by it.
     const stats = await pool.query(`
       SELECT
         COUNT(*) FILTER (WHERE status = 'planned') AS planned,
         COUNT(*) FILTER (WHERE status = 'writing') AS writing,
         COUNT(*) FILTER (WHERE status = 'planned' AND target_publish_date < CURRENT_DATE) AS overdue
       FROM seo_content_calendar
-    `);
+      WHERE tenant_id = $1
+    `, [tenantId]);
     if (stats.rows[0]) {
       contentCalendar.planned = parseInt(stats.rows[0].planned || '0');
       contentCalendar.writing = parseInt(stats.rows[0].writing || '0');
@@ -741,10 +752,13 @@ async function _collectDailyDataInner(client: Queryable, errors: string[]): Prom
   // -------------------------------------------------------------------------
   let financeSnapshot = { overdueInvoices: 0, overdueAmount: 0 };
   try {
+    // invoices.tenant_id is NOT NULL (schema.ts) — this duplicates the
+    // already-scoped BILLING section above (step 7) but was reading every
+    // tenant's overdue invoices unfiltered.
     const overdue = await pool.query(`
       SELECT COUNT(*) AS count, COALESCE(SUM(amount_due), 0) AS total
-      FROM invoices WHERE status = 'overdue'
-    `);
+      FROM invoices WHERE tenant_id = $1 AND status = 'overdue'
+    `, [tenantId]);
     if (overdue.rows[0]) {
       financeSnapshot.overdueInvoices = parseInt(overdue.rows[0].count || '0');
       financeSnapshot.overdueAmount = Math.round(parseInt(overdue.rows[0].total || '0') / 100); // paise to rupees
@@ -757,14 +771,16 @@ async function _collectDailyDataInner(client: Queryable, errors: string[]): Prom
   // -------------------------------------------------------------------------
   let topSources: Array<{ source: string; purchases: number }> = [];
   try {
+    // contacts.tenant_id is NOT NULL (schema.ts) — this read was pooling
+    // every tenant's paid contacts into "GE's" top UTM sources.
     const sources = await pool.query(`
       SELECT metadata->>'utm_source' AS source, COUNT(*) AS purchases
       FROM contacts
-      WHERE metadata->>'paymentStatus' = 'paid' AND metadata->>'utm_source' IS NOT NULL
+      WHERE tenant_id = $1 AND metadata->>'paymentStatus' = 'paid' AND metadata->>'utm_source' IS NOT NULL
       AND created_at >= CURRENT_DATE - INTERVAL '7 days'
       GROUP BY metadata->>'utm_source'
       ORDER BY COUNT(*) DESC LIMIT 3
-    `);
+    `, [tenantId]);
     topSources = sources.rows;
   } catch { /* UTM data not yet available */ }
 

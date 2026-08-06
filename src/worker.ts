@@ -22,7 +22,7 @@ import { checkSpendAlerts } from './services/spendAlertService';
 import { collectDailyData } from './services/intelligenceDataCollector';
 import { analyzeWithClaude } from './services/intelligenceAnalyzer';
 import { deliverDailyIntelligence } from './services/intelligenceDelivery';
-import { SLACK_SALES_BD_CHANNEL, SLACK_JATIN, SLACK_SAKCHAM, SLACK_PERF_MARKETING_CHANNEL, SLACK_SEO_CHANNEL, SLACK_SOD_EOD_CHANNEL, DEFAULT_TENANT_SLUG, WIZMATCH_LEADS_CHANNEL, WIZMATCH_SYSTEM_CHANNEL } from './config/constants';
+import { SLACK_SALES_BD_CHANNEL, SLACK_JATIN, SLACK_SAKCHAM, SLACK_PERF_MARKETING_CHANNEL, SLACK_SOD_EOD_CHANNEL, DEFAULT_TENANT_SLUG, WIZMATCH_LEADS_CHANNEL, WIZMATCH_SYSTEM_CHANNEL } from './config/constants';
 import { isPaused } from './config/featureFlags';
 import { getWizmatchAutomationStatus, WIZMATCH_STAFFING_REMINDER_CRON } from './services/wizmatchAutomation';
 import { getActiveTenantsWithFeature, getSingleActiveTenantWithFeature } from './services/tenantFeatures';
@@ -45,6 +45,13 @@ if (!process.env.SERPER_API_KEY) _missingEnvVars.push('SERPER_API_KEY (SEO rank 
 if (!process.env.META_ADS_TOKEN && !process.env.META_ACCESS_TOKEN) _missingEnvVars.push('META_ADS_TOKEN (Meta Ads daily report will not work)');
 if (!process.env.ANTHROPIC_API_KEY && !process.env.CLAUDE_API_KEY) _missingEnvVars.push('ANTHROPIC_API_KEY (AI intelligence + reply classifier will use fallback mode)');
 if (!process.env.META_PIXEL_ID) _missingEnvVars.push('META_PIXEL_ID (Meta CAPI conversions will not fire — get from Events Manager)');
+// Outreach-critical env vars
+if (!process.env.GOOGLE_PLACES_API_KEY) _missingEnvVars.push('GOOGLE_PLACES_API_KEY (daily outreach lead discovery will not run)');
+if (!process.env.HUNTER_API_KEY) _missingEnvVars.push('HUNTER_API_KEY (outreach enrichment email-finder primary source disabled)');
+if (!process.env.SNOVIO_API_KEY && !process.env.SNOV_API_KEY) _missingEnvVars.push('SNOVIO_API_KEY (outreach enrichment email-finder secondary source disabled)');
+if (!process.env.SALESHANDY_API_KEY) _missingEnvVars.push('SALESHANDY_API_KEY (outreach upload-to-sequence automation will not work)');
+if (!process.env.SALESHANDY_SEQUENCE_ID) _missingEnvVars.push('SALESHANDY_SEQUENCE_ID (outreach upload target sequence missing)');
+if (!process.env.OUTREACH_INTERNAL_SECRET) _missingEnvVars.push('OUTREACH_INTERNAL_SECRET (internal auth for outreach endpoints disabled — historically n8n, which is decommissioned; verify current caller before assuming this is unused)');
 if (!process.env.SNOVIO_API_KEY && !process.env.SNOV_API_KEY) _missingEnvVars.push('SNOVIO_API_KEY (Wizmatch contact-discovery email-finder secondary source disabled)');
 if (!process.env.OUTREACH_INTERNAL_SECRET) _missingEnvVars.push('OUTREACH_INTERNAL_SECRET (Wizmatch internal-endpoint auth fallback disabled)');
 if (!process.env.MEETING_BOOKING_URL) _missingEnvVars.push('MEETING_BOOKING_URL (INTERESTED-reply drafts will not include a self-book link)');
@@ -66,12 +73,17 @@ if (_missingEnvVars.length > 0) {
 // Track all setInterval timers for graceful shutdown
 const _intervals: ReturnType<typeof setInterval>[] = [];
 
+// One-time startup: ensure enrichment columns + reply alert columns + funnel metrics
 // One-time startup: ensure self-healing columns + website cache + attendance columns
 // Each failure is logged (was previously a silent .catch(() => {})) — a
 // failed schema-bootstrap here left zero evidence, so the FIRST symptom was
 // a cron throwing "column does not exist" hours later with no link back to
 // the actual boot-time failure.
-import('./services/workflowSelfHealingService').then(m => m.ensureSelfHealingColumns()).catch(e => console.error('[worker] ensureSelfHealingColumns failed:', e instanceof Error ? e.message : e));
+// workflowSelfHealingService.ts (and its seo_workflow_logs self-healing columns
+// bootstrap that used to run here) has been removed — it retried failed n8n
+// executions, and n8n is decommissioned. The 13 native src/services/seo*
+// services it used to "heal" don't have executions to retry; they either
+// succeed or throw, and safeCron() already surfaces a thrown error to Slack.
 import('./services/websiteCacheService').then(m => m.ensureWebsiteCacheTable()).catch(e => console.error('[worker] ensureWebsiteCacheTable failed:', e instanceof Error ? e.message : e));
 import('./services/attendanceColumns').then(m => m.ensureAttendanceColumns()).catch(e => console.error('[worker] ensureAttendanceColumns failed:', e instanceof Error ? e.message : e));
 
@@ -461,67 +473,19 @@ console.log('[cron] AI intelligence report scheduled — daily 8:30 AM IST');
 */
 console.log('[cron] AI intelligence report — PAUSED 2026-05-03');
 
-// PAUSED 2026-05-03 — SEO Workflow Health. The SEO workflows it monitors
-// no longer exist in n8n (only the unrelated content pipeline remains),
-// so this fired "n8n is DOWN" alerts daily for a thing that's intentionally
-// not running. Re-enable by uncommenting after redeploying SEO workflows.
-/*
-cron.schedule('45 3 * * *', () => safeCron('SEO Workflow Health', async () => {
-  const { sendSlackMessage } = await import('./services/slackService');
-  const health = await (await import('./services/intelligenceDataCollector')).collectSEOWorkflowHealth();
-
-  if (!health.n8nAlive) {
-    const downMsg = '🚨 *CRITICAL: n8n is DOWN*\n' +
-      'All 12 SEO workflows are not running.\n' +
-      'Check: https://primary-production-6c6f5.up.railway.app\n' +
-      'Railway dashboard → GE-Backend-Server → Primary service';
-    await sendSlackMessage(SLACK_SEO_CHANNEL, downMsg);
-    await sendSlackMessage(SLACK_JATIN, downMsg);
-  }
-
-  if (health.brokenCritical.length > 0) {
-    const msg = health.brokenCritical.map(wf =>
-      `• ${wf.name} — last ran ${wf.daysSince === 999 ? 'NEVER' : `${wf.daysSince} days ago`}`
-    ).join('\n');
-    const alertMsg = `⚠️ *SEO Workflow Alert*\n\n${health.brokenCritical.length} critical workflow(s) overdue:\n${msg}\n\n` +
-      `Fix: /seo → Workflows → Run Now\n` +
-      `Or check n8n directly: https://primary-production-6c6f5.up.railway.app`;
-    await sendSlackMessage(SLACK_SEO_CHANNEL, alertMsg);
-    await sendSlackMessage(SLACK_JATIN, alertMsg);
-  }
-
-  if (!health.allHealthy) {
-    const overdueLines = health.workflows
-      .filter(w => !w.healthy)
-      .map(w => `${w.critical ? '🔴' : '🟡'} ${w.name} — ${w.daysSince === 999 ? 'never run' : `${w.daysSince}d overdue`}`)
-      .join('\n');
-    await sendSlackMessage(SLACK_SEO_CHANNEL,
-      `⚙️ *SEO Workflow Health Check*\n` +
-      `Healthy: ${health.healthyCount}/${health.totalCount}\n` +
-      `n8n: ${health.n8nAlive ? '🟢 Online' : '🔴 Offline'}\n\n${overdueLines}`
-    );
-  }
-
-  console.log(`[CRON] SEO health: ${health.healthyCount}/${health.totalCount} healthy`);
-}), { timezone: 'UTC' });
-console.log('[cron] SEO workflow health check scheduled — daily 9:15 AM IST');
-*/
-console.log('[cron] SEO workflow health check — PAUSED 2026-05-03');
-
-// PAUSED 2026-05-03 — Workflow Self-Healing. Polls n8n for failed SEO
-// executions every 30 min — but the workflows it heals don't exist in n8n
-// anymore (only content pipeline runs there), and the N8N_API_KEY for this
-// service is currently rejecting with 401 anyway. Re-enable after
-// redeploying SEO workflows + refreshing the API key.
-// (Using //-comments here instead of /* */ because the cron expression
-// '*/30 * * * *' contains */ which terminates a block comment early.)
-//
-// cron.schedule('*/30 * * * *', () => safeCron('Workflow Self-Healing', async () => {
-//   const { runSelfHealingCycle } = await import('./services/workflowSelfHealingService');
-//   await runSelfHealingCycle();
-// }), { timezone: 'UTC' });
-// console.log('[cron] workflow self-healing scheduled — every 30 minutes');
-console.log('[cron] workflow self-healing — PAUSED 2026-05-03');
+// REMOVED — SEO Workflow Health (n8n-down alerting) and Workflow Self-Healing
+// crons. Both polled n8n's API for failed executions of SEO workflows; n8n
+// has since been decommissioned entirely (not just the SEO workflows — the
+// whole instance is gone), so both crons could only ever report "n8n is
+// DOWN" and had nothing left to heal. They were already PAUSED 2026-05-03
+// for that reason and are now removed along with workflowSelfHealingService.ts.
+// The 13 native src/services/seo* services are the replacement: each runs
+// directly (see src/routes/seo.ts's BACKEND_SERVICES map and worker.ts's own
+// SEO crons below/elsewhere), writes straight to Postgres, and its freshness
+// is checked natively by intelligenceDataCollector.ts's
+// collectSEOWorkflowHealth() — no n8n involved.
+console.log('[cron] SEO workflow health check — removed (n8n decommissioned)');
+console.log('[cron] workflow self-healing — removed (n8n decommissioned)');
 
 // ---------------------------------------------------------------------------
 // Meta Ads Daily Report — 9:30 AM IST (4:00 UTC), Mon-Sat
@@ -714,43 +678,202 @@ console.log('[cron] Retainer invoice generator scheduled — daily 9:00 AM IST')
 console.log('[cron] Retainer invoice generator — PAUSED 2026-05-03');
 
 // ---------------------------------------------------------------------------
+// SEO CRON BLOCK — every cron below sweeps PER TENANT.
+//
+// They used to call the service with no arguments, and the service resolved its
+// tenant internally via resolveDefaultSeoTenantId(). That resolver throws the
+// moment a SECOND active tenant has `seo: true`, because
+// getSingleActiveTenantWithFeature refuses to guess who owns the data (it
+// exists because a reseller tenant once silently stole GE's own inbound leads).
+//
+// The consequence was a live tripwire on the sale path: enabling the SEO add-on
+// for one reseller would have killed every SEO cron for EVERY tenant, including
+// Growth Escalators' own, with no code change to point at. Selling the feature
+// would have broken the feature.
+//
+// So each cron now loops via forEachSeoTenant(), which isolates per-tenant
+// failures — one tenant's expired Google token must not skip every tenant after
+// it in the list — and each service takes the tenant id explicitly. Nothing in
+// this block reaches resolveDefaultSeoTenantId() any more. That is asserted by
+// a test; see src/__tests__/seoCronTenantSweep.test.ts.
+//
+// Partial failures are recorded as partial (status 'error' on the workflow row,
+// successes kept) and only a TOTAL failure rethrows, so safeCron's alerting
+// still fires when nothing worked at all.
 // ---------------------------------------------------------------------------
+
+/**
+ * Runs one SEO cron body once per SEO-enabled tenant, writing ONE
+ * seo_workflow_logs row per tenant.
+ *
+ * Per-tenant rows rather than one aggregate row: seo_workflow_logs.tenant_id is
+ * populated now, and "the Backlink Monitor failed" is not an actionable alert
+ * once two agencies run it — "it failed for tenant X" is. An aggregate row
+ * would also have to pick one status for a run where one tenant succeeded and
+ * another failed, and there is no honest answer to that.
+ *
+ * `countOf` extracts the per-tenant "records processed" number from whatever
+ * the service returns, so each caller keeps its own notion of what it counted.
+ */
+async function seoTenantSweep<T>(
+  workflow: { workflowId: string; workflowName: string },
+  fn: (tenantId: string) => Promise<T>,
+  countOf: (value: T) => number,
+  describe: (value: T) => string,
+): Promise<void> {
+  const { forEachSeoTenant } = await import('./services/seoTenantContext');
+  const { logSeoWorkflowRun } = await import('./services/seoWorkflowHealthService');
+
+  const sweep = await forEachSeoTenant(workflow.workflowName, async (tenantId) => {
+    // Started/finished are measured per tenant, not across the whole sweep —
+    // otherwise the last tenant's row claims a duration covering everyone.
+    const startedAt = new Date();
+    try {
+      const value = await fn(tenantId);
+      console.log(`[CRON] ${workflow.workflowName} (tenant ${tenantId}): ${describe(value)}`);
+      await logSeoWorkflowRun({
+        ...workflow, status: 'success', startedAt, tenantId,
+        recordsProcessed: countOf(value),
+      });
+      return value;
+    } catch (e) {
+      await logSeoWorkflowRun({
+        ...workflow, status: 'error', startedAt, tenantId,
+        errorMessage: e instanceof Error ? e.message : String(e),
+      });
+      throw e; // forEachSeoTenant catches it, records the failure, and continues
+    }
+  });
+
+  if (sweep.failed > 0 && sweep.succeeded === 0) {
+    // Total failure — indistinguishable from the old single-tenant behaviour,
+    // so rethrow and let safeCron alert exactly as it always did.
+    throw new Error(
+      `[CRON] ${workflow.workflowName} failed for all ${sweep.failed} tenant(s): ` +
+      sweep.results.map((r) => (r.ok ? '' : r.error.message)).filter(Boolean).join('; '),
+    );
+  }
+  if (sweep.failed > 0) {
+    console.warn(
+      `[CRON] ${workflow.workflowName}: PARTIAL — ${sweep.succeeded} tenant(s) succeeded, ${sweep.failed} failed`,
+    );
+  }
+}
+
+/**
+ * True only for the tenant whose humans the fixed SEO notification destinations
+ * actually belong to.
+ *
+ * The SEO digest posts to SLACK_SEO_CHANNEL and the weekly email goes to a
+ * hardcoded jatin@growthescalators.com — neither destination is per-tenant.
+ * So sweeping those two crons across every SEO tenant would not deliver a
+ * reseller their own report; it would deliver THEIR data into GE's Slack
+ * channel and inbox, once per tenant.
+ *
+ * Both crons are env-gated off today (SEO_DIGEST_SLACK_ENABLED,
+ * AUTOMATED_EMAILS_ENABLED), so nothing is being sent right now. This guard
+ * exists so that turning either flag on later does not quietly start shipping a
+ * reseller's data to GE — it fails closed instead, and says why.
+ *
+ * Remove this once recipients are resolved per tenant (a tenant_integrations
+ * Slack channel + a per-tenant report recipient). Until then the honest
+ * behaviour is "GE gets its report, resellers get nothing", not "everyone's
+ * report goes to GE".
+ */
+async function seoNotificationTenantAllowed(tenantId: string, cronName: string): Promise<boolean> {
+  const { getDefaultIngestTenant } = await import('./services/tenantFeatures');
+  const geTenant = await getDefaultIngestTenant('seo');
+  if (geTenant && geTenant.id === tenantId) return true;
+  console.warn(
+    `[CRON] ${cronName}: skipping tenant ${tenantId} — SEO notification destinations ` +
+    '(Slack channel, email recipient) are not per-tenant yet, and sending would deliver ' +
+    "this tenant's data to Growth Escalators' own channel/inbox rather than to them.",
+  );
+  return false;
+}
+
 // SEO Weekly Email — Thursday 10:30 AM IST (5:00 UTC)
-// ---------------------------------------------------------------------------
 cron.schedule('0 5 * * 4', () => safeCron('SEO Weekly Email', async () => {
   if (isPaused('seo')) return;
   const { sendSEOWeeklyEmail } = await import('./services/seoWeeklyEmailService');
-  await sendSEOWeeklyEmail();
+  const { forEachSeoTenant } = await import('./services/seoTenantContext');
+  // One email per tenant. Never a merged send — a single email carrying two
+  // tenants' SEO data is a data leak, not a formatting problem.
+  //
+  // The recipient is still a fixed GE address, so the guard skips every tenant
+  // whose report would land in the wrong inbox. See its docblock.
+  const sweep = await forEachSeoTenant('SEO Weekly Email', async (tenantId) => {
+    if (!(await seoNotificationTenantAllowed(tenantId, 'SEO Weekly Email'))) return;
+    await sendSEOWeeklyEmail(tenantId);
+  });
+  if (sweep.failed > 0 && sweep.succeeded === 0) {
+    throw new Error(`[CRON] SEO Weekly Email failed for all ${sweep.failed} tenant(s)`);
+  }
 }), { timezone: 'UTC' });
 console.log('[cron] SEO weekly email scheduled — Thursdays 10:30 AM IST');
 
 // ---------------------------------------------------------------------------
-// GE SEO Pull — Monday 8:15 AM IST (2:45 UTC)
-// Runs scripts/ge-seo-pull.ts (a standalone CLI script, not a shared service
-// module — spawned as a subprocess rather than imported) to pull Search
-// Console + GA4 for growthescalators.com. Auth: GOOGLE_SEO_OAUTH_REFRESH_TOKEN
-// + GCP_OAUTH_CLIENT_ID/SECRET env vars in Railway (falls back to the local
-// ~/.ge-seo/oauth_credentials.json file, unused here, or a service account —
-// see getAuth() in the script).
-// Writes docs/seo/state/growthescalators.{json,md} to the container's local
-// filesystem — that's ephemeral on Railway (reset on every deploy/restart),
-// which is fine: it's a state cache Claude reads mid-session, not the source
-// of truth (GSC/GA4 are). Out of scope to persist it anywhere else.
 // ---------------------------------------------------------------------------
-cron.schedule('45 2 * * 1', () => safeCron('GE SEO Pull', async () => {
+// SEO GSC Pull — Monday 8:15 AM IST (2:45 UTC)
+//
+// REPLACES the old 'GE SEO Pull', which spawned `npx tsx scripts/ge-seo-pull.ts`
+// as a subprocess and wrote docs/seo/state/growthescalators.{json,md} to the
+// container's local filesystem. Three things were wrong with that, in order:
+//
+//   1. Railway's filesystem is EPHEMERAL — wiped on every deploy and restart —
+//      so the data was routinely gone before anyone read it, and there was no
+//      history at all.
+//   2. It was hardcoded to one property (growthescalators.com), so it could
+//      never work for a second tenant. That is the whole product now.
+//   3. Spawning `npx tsx` from a worker needs devDependencies present at
+//      runtime and gives no typed errors — a failure surfaced as stderr text.
+//
+// Now an importable service writing to Postgres, per tenant via
+// seoTenantSweep like every other SEO cron. GA4 is a SEPARATE cron (see
+// 'SEO GA4 Pull' immediately below): they were one job, so a GA4 failure
+// discarded the GSC data that had already been fetched.
+//
+// scripts/ge-seo-pull.ts is intentionally left in place — it still works as a
+// manual CLI (`npm run ge:seo`) and deleting it is not this change.
+// ---------------------------------------------------------------------------
+cron.schedule('45 2 * * 1', () => safeCron('SEO GSC Pull', async () => {
   if (isPaused('seo')) return;
-  const { execFile } = await import('child_process');
-  const { promisify } = await import('util');
-  const execFileAsync = promisify(execFile);
-  const { stdout, stderr } = await execFileAsync('npx', ['tsx', 'scripts/ge-seo-pull.ts'], {
-    cwd: process.cwd(),
-    timeout: 5 * 60 * 1000, // 5 min — GSC + GA4 pull is a handful of API calls
-    env: process.env,
-  });
-  if (stdout) console.log(`[CRON] GE SEO Pull:\n${stdout}`);
-  if (stderr) console.warn(`[CRON] GE SEO Pull stderr:\n${stderr}`);
+  const { runSeoSearchConsolePull } = await import('./services/seoSearchConsoleService');
+  await seoTenantSweep(
+    { workflowId: 'seo-gsc-pull', workflowName: 'SEO GSC Pull' },
+    (tenantId) => runSeoSearchConsolePull(tenantId),
+    (r) => r.rows,
+    (r) => `${r.sites} sites, ${r.rows} rows, ${r.errors} errors`,
+  );
 }), { timezone: 'UTC' });
-console.log('[cron] GE SEO pull scheduled — Mondays 8:15 AM IST (2:45 UTC)');
+console.log('[cron] SEO GSC pull scheduled — Mondays 8:15 AM IST (2:45 UTC)');
+
+// ---------------------------------------------------------------------------
+// SEO GA4 Pull — Monday 8:45 AM IST (3:15 UTC), 30 min after the GSC pull
+//
+// A SEPARATE cron from the GSC pull, which is the whole point. In the legacy
+// scripts/ge-seo-pull.ts these were one job that fetched both and wrote at the
+// end, so a GA4 failure discarded Search Console data that had already been
+// fetched successfully. Splitting them means each survives the other failing.
+//
+// Runs AFTER the GSC pull rather than alongside it: both write the same
+// (site, week) row of seo_weekly_metrics — GSC owns clicks/impressions, GA4
+// owns sessions — and each merges into the other's row rather than adding a
+// second one. The order is not required for correctness (both writers do
+// UPDATE-then-INSERT, in either direction), but staggering avoids two
+// concurrent writers racing to create the same row.
+// ---------------------------------------------------------------------------
+cron.schedule('15 3 * * 1', () => safeCron('SEO GA4 Pull', async () => {
+  if (isPaused('seo')) return;
+  const { runSeoAnalyticsPull } = await import('./services/seoAnalyticsService');
+  await seoTenantSweep(
+    { workflowId: 'seo-ga4-pull', workflowName: 'SEO GA4 Pull' },
+    (tenantId) => runSeoAnalyticsPull(tenantId),
+    (r) => r.rows,
+    (r) => `${r.sites} sites, ${r.rows} rows, ${r.errors} errors`,
+  );
+}), { timezone: 'UTC' });
+console.log('[cron] SEO GA4 pull scheduled — Mondays 8:45 AM IST (3:15 UTC)');
 
 // ---------------------------------------------------------------------------
 // Backend PageSpeed Monitor — Sunday 7:30 AM IST (2:00 UTC)
@@ -758,92 +881,83 @@ console.log('[cron] GE SEO pull scheduled — Mondays 8:15 AM IST (2:45 UTC)');
 // ---------------------------------------------------------------------------
 cron.schedule('0 2 * * 0', () => safeCron('PageSpeed Monitor', async () => {
   if (isPaused('seo')) return;
-  const startedAt = new Date();
   const { runPageSpeedChecks } = await import('./services/pagespeedService');
-  const { logSeoWorkflowRun } = await import('./services/seoWorkflowHealthService');
-  try {
-    const result = await runPageSpeedChecks();
-    console.log(`[CRON] PageSpeed: ${result.checked} checked, ${result.errors} errors`);
-    await logSeoWorkflowRun({
-      workflowId: 'z21W6MDWBF0dukkT', workflowName: 'PageSpeed Monitor',
-      status: 'success', startedAt, recordsProcessed: result.checked,
-    });
-  } catch (e) {
-    await logSeoWorkflowRun({
-      workflowId: 'z21W6MDWBF0dukkT', workflowName: 'PageSpeed Monitor',
-      status: 'error', startedAt, errorMessage: e instanceof Error ? e.message : String(e),
-    });
-    throw e;
-  }
+  await seoTenantSweep(
+    { workflowId: 'z21W6MDWBF0dukkT', workflowName: 'PageSpeed Monitor' },
+    (tenantId) => runPageSpeedChecks(tenantId),
+    (r) => r.checked,
+    (r) => `${r.checked} checked, ${r.errors} errors`,
+  );
 }), { timezone: 'UTC' });
 console.log('[cron] PageSpeed monitor scheduled — Sundays 7:30 AM IST');
 
 // RE-ENABLED 2026-07 (seo-learning-loop) — Serper calls now go through
-// checkAndIncrementSeoSerperCap() (seoWorkflowHealthService.ts) before this fires.
+// the per-tenant Serper cost guard (guardedSerperCall, seoSerperGuard.ts) before this fires.
 cron.schedule('30 3 * * 2', () => safeCron('Rank Tracking', async () => {
-  const startedAt = new Date();
   const { runRankChecks } = await import('./services/rankTrackingService');
-  const { logSeoWorkflowRun } = await import('./services/seoWorkflowHealthService');
-  try {
-    const result = await runRankChecks();
-    console.log(`[CRON] Rank tracking: ${result.checked} keywords checked, ${result.errors} errors`);
-    await logSeoWorkflowRun({
-      workflowId: 'BwO187curjMMA60i', workflowName: 'Rank Tracking',
-      status: 'success', startedAt, recordsProcessed: result.checked,
-    });
-  } catch (e) {
-    await logSeoWorkflowRun({
-      workflowId: 'BwO187curjMMA60i', workflowName: 'Rank Tracking',
-      status: 'error', startedAt, errorMessage: e instanceof Error ? e.message : String(e),
-    });
-    throw e;
-  }
+  await seoTenantSweep(
+    { workflowId: 'BwO187curjMMA60i', workflowName: 'Rank Tracking' },
+    (tenantId) => runRankChecks(tenantId),
+    (r) => r.checked,
+    (r) => `${r.checked} keywords checked, ${r.errors} errors`,
+  );
 }), { timezone: 'UTC' });
 console.log('[cron] Rank tracking scheduled — Tuesdays 9:00 AM IST (Serper.dev)');
+
+// ---------------------------------------------------------------------------
+// SEO Drift Sweep — Daily 7:30 AM IST (2:00 UTC)
+//
+// Reads each tracked page as a crawler would and compares it to the last
+// snapshot. This is the detector for "the client edited the page behind the
+// agency's back" — the failure an agency cannot otherwise see until rankings
+// have already stalled for months.
+//
+// Scheduled BEFORE the other SEO crons, not after: rank tracking and content
+// decay both reason about pages that are assumed live and unchanged, so a
+// sweep that runs first means those jobs work against a set whose drift is
+// already known rather than one nobody has checked today.
+//
+// Per-tenant via seoTenantSweep like every other SEO cron — runSeoDriftSweep
+// is single-tenant per call by convention (the service takes an optional
+// tenantId; the fan-out lives here, which is what keeps
+// resolveDefaultSeoTenantId out of the cron block — see
+// src/__tests__/seoCronTenantSweep.test.ts).
+// ---------------------------------------------------------------------------
+cron.schedule('0 2 * * *', () => safeCron('SEO Drift Sweep', async () => {
+  if (isPaused('seo')) return;
+  const { runSeoDriftSweep } = await import('./services/siteDriftService');
+  await seoTenantSweep(
+    { workflowId: 'seo-drift-sweep', workflowName: 'SEO Drift Sweep' },
+    (tenantId) => runSeoDriftSweep(tenantId),
+    (r) => r.drifts,
+    (r) => `${r.sites} sites, ${r.urls} urls, ${r.drifts} drifts, ${r.alerts} alerts, ${r.errors} errors`,
+  );
+}), { timezone: 'UTC' });
+console.log('[cron] SEO drift sweep scheduled — daily 7:30 AM IST');
 
 // SEO Alert Triggers — Daily 9 AM IST (3:30 UTC) — runs directly (no n8n dependency)
 cron.schedule('30 3 * * *', () => safeCron('SEO Alert Triggers', async () => {
   if (isPaused('seo')) return;
-  const startedAt = new Date();
   const { runSeoAlertChecks } = await import('./services/seoAlertService');
-  const { logSeoWorkflowRun } = await import('./services/seoWorkflowHealthService');
-  try {
-    const result = await runSeoAlertChecks();
-    console.log(`[CRON] SEO Alert Triggers: ${result.alerts} alerts generated`);
-    await logSeoWorkflowRun({
-      workflowId: '5FVX2kEjuD7vWD0e', workflowName: 'Alert Triggers',
-      status: 'success', startedAt, recordsProcessed: result.alerts,
-    });
-  } catch (e) {
-    await logSeoWorkflowRun({
-      workflowId: '5FVX2kEjuD7vWD0e', workflowName: 'Alert Triggers',
-      status: 'error', startedAt, errorMessage: e instanceof Error ? e.message : String(e),
-    });
-    throw e;
-  }
+  await seoTenantSweep(
+    { workflowId: '5FVX2kEjuD7vWD0e', workflowName: 'Alert Triggers' },
+    (tenantId) => runSeoAlertChecks(tenantId),
+    (r) => r.alerts,
+    (r) => `${r.alerts} alerts generated`,
+  );
 }), { timezone: 'UTC' });
 console.log('[cron] SEO alert triggers scheduled — daily 9:00 AM IST (backend-native)');
 
 // RE-ENABLED 2026-07 (seo-learning-loop) — Serper calls now go through
-// checkAndIncrementSeoSerperCap() (seoWorkflowHealthService.ts) before this fires.
+// the per-tenant Serper cost guard (guardedSerperCall, seoSerperGuard.ts) before this fires.
 cron.schedule('30 3 * * 5', () => safeCron('SEO Backlink Monitor', async () => {
-  const startedAt = new Date();
   const { runBacklinkCheck } = await import('./services/seoBacklinkService');
-  const { logSeoWorkflowRun } = await import('./services/seoWorkflowHealthService');
-  try {
-    const result = await runBacklinkCheck();
-    console.log(`[CRON] SEO Backlink Monitor: ${result.found} new backlinks, ${result.errors} errors`);
-    await logSeoWorkflowRun({
-      workflowId: '19R3BStSY2S1N9H1', workflowName: 'Backlink Monitor',
-      status: 'success', startedAt, recordsProcessed: result.found,
-    });
-  } catch (e) {
-    await logSeoWorkflowRun({
-      workflowId: '19R3BStSY2S1N9H1', workflowName: 'Backlink Monitor',
-      status: 'error', startedAt, errorMessage: e instanceof Error ? e.message : String(e),
-    });
-    throw e;
-  }
+  await seoTenantSweep(
+    { workflowId: '19R3BStSY2S1N9H1', workflowName: 'Backlink Monitor' },
+    (tenantId) => runBacklinkCheck(tenantId),
+    (r) => r.found,
+    (r) => `${r.found} new backlinks, ${r.errors} errors`,
+  );
 }), { timezone: 'UTC' });
 console.log('[cron] SEO backlink monitor scheduled — Fridays 9:00 AM IST (backend-native)');
 
@@ -851,23 +965,13 @@ console.log('[cron] SEO backlink monitor scheduled — Fridays 9:00 AM IST (back
 // (no direct Serper call), unaffected by the cap but re-enabled alongside its
 // upstream (Rank Tracking above) so decay detection has fresh data to work from.
 cron.schedule('30 3 * * 1', () => safeCron('SEO Content Decay', async () => {
-  const startedAt = new Date();
   const { runContentDecayDetection } = await import('./services/seoContentDecayService');
-  const { logSeoWorkflowRun } = await import('./services/seoWorkflowHealthService');
-  try {
-    const result = await runContentDecayDetection();
-    console.log(`[CRON] SEO Content Decay: ${result.opportunities} decay opportunities found`);
-    await logSeoWorkflowRun({
-      workflowId: 'Ss2Bfps5lXBWUUs4', workflowName: 'Content Decay Detection',
-      status: 'success', startedAt, recordsProcessed: result.opportunities,
-    });
-  } catch (e) {
-    await logSeoWorkflowRun({
-      workflowId: 'Ss2Bfps5lXBWUUs4', workflowName: 'Content Decay Detection',
-      status: 'error', startedAt, errorMessage: e instanceof Error ? e.message : String(e),
-    });
-    throw e;
-  }
+  await seoTenantSweep(
+    { workflowId: 'Ss2Bfps5lXBWUUs4', workflowName: 'Content Decay Detection' },
+    (tenantId) => runContentDecayDetection(tenantId),
+    (r) => r.opportunities,
+    (r) => `${r.opportunities} decay opportunities found`,
+  );
 }), { timezone: 'UTC' });
 console.log('[cron] SEO content decay scheduled — Every Monday 9:00 AM IST (backend-native)');
 
@@ -877,24 +981,26 @@ console.log('[cron] SEO content decay scheduled — Every Monday 9:00 AM IST (ba
 // digest was sent, so gating the cron loses nothing but the message itself.
 if (SEO_DIGEST_SLACK_ENABLED) cron.schedule('30 11 * * 5', () => safeCron('SEO Weekly Digest', async () => {
   if (isPaused('seo')) return;
-  const startedAt = new Date();
   const { sendWeeklyOpportunityDigest } = await import('./services/seoDigestService');
-  const { logSeoWorkflowRun } = await import('./services/seoWorkflowHealthService');
-  try {
-    const result = await sendWeeklyOpportunityDigest();
-    console.log(`[CRON] SEO Weekly Digest: ${result.sent ? 'sent' : 'failed'}`);
-    await logSeoWorkflowRun({
-      workflowId: 'M4rbRZL5jh0jJHku', workflowName: 'Weekly Opportunity Digest',
-      status: result.sent ? 'success' : 'error', startedAt,
-      errorMessage: result.sent ? undefined : 'Slack send failed',
-    });
-  } catch (e) {
-    await logSeoWorkflowRun({
-      workflowId: 'M4rbRZL5jh0jJHku', workflowName: 'Weekly Opportunity Digest',
-      status: 'error', startedAt, errorMessage: e instanceof Error ? e.message : String(e),
-    });
-    throw e;
-  }
+  // One digest per tenant. A merged digest would put two agencies' opportunity
+  // lists in the same Slack message.
+  await seoTenantSweep(
+    { workflowId: 'M4rbRZL5jh0jJHku', workflowName: 'Weekly Opportunity Digest' },
+    async (tenantId) => {
+      // Posts to a fixed GE Slack channel, so skip any tenant whose digest
+      // would land in the wrong place. See seoNotificationTenantAllowed.
+      if (!(await seoNotificationTenantAllowed(tenantId, 'SEO Weekly Digest'))) {
+        return { sent: false, skipped: true };
+      }
+      const result = await sendWeeklyOpportunityDigest(tenantId);
+      // A false `sent` is a failure, not a quiet success — throw so this
+      // tenant's row records 'error' and the sweep counts it as failed.
+      if (!result.sent) throw new Error('Slack send failed');
+      return { ...result, skipped: false };
+    },
+    (r) => (r.skipped ? 0 : 1),
+    (r) => (r.skipped ? 'skipped (no per-tenant Slack destination)' : 'sent'),
+  );
 }), { timezone: 'UTC' });
 console.log('[cron] SEO weekly digest scheduled — Fridays 5:00 PM IST (backend-native)');
 
@@ -906,8 +1012,18 @@ console.log('[cron] SEO weekly digest scheduled — Fridays 5:00 PM IST (backend
 cron.schedule('0 7 * * 5', () => safeCron('SEO Indexing Reminder', async () => {
   if (isPaused('seo')) return;
   const { sendIndexingReminderDigest } = await import('./services/seoIndexingQueueService');
-  const result = await sendIndexingReminderDigest();
-  console.log(`[CRON] SEO Indexing Reminder: ${result.sent ? `sent (${result.count} URLs, ${result.pendingTotal} pending total)` : 'skipped (nothing due)'}`);
+  const { forEachSeoTenant } = await import('./services/seoTenantContext');
+  // No seo_workflow_logs row for this one — it never had one, and adding one
+  // here would make it look like a workflow the health page tracks when it is
+  // really a Slack nudge. Kept as a plain sweep.
+  const sweep = await forEachSeoTenant('SEO Indexing Reminder', async (tenantId) => {
+    const result = await sendIndexingReminderDigest(tenantId);
+    console.log(`[CRON] SEO Indexing Reminder (tenant ${tenantId}): ${result.sent ? `sent (${result.count} URLs, ${result.pendingTotal} pending total)` : 'skipped (nothing due)'}`);
+    return result;
+  });
+  if (sweep.failed > 0 && sweep.succeeded === 0) {
+    throw new Error(`[CRON] SEO Indexing Reminder failed for all ${sweep.failed} tenant(s)`);
+  }
 }), { timezone: 'UTC' });
 console.log('[cron] SEO indexing reminder scheduled — Fridays 12:30 PM IST (backend-native)');
 
@@ -915,19 +1031,34 @@ console.log('[cron] SEO indexing reminder scheduled — Fridays 12:30 PM IST (ba
 cron.schedule('30 3 1,15 * *', () => safeCron('Competitor Content Analysis', async () => {
   if (isPaused('seo')) return;
   const { runCompetitorContentAnalysis } = await import('./services/competitorContentService');
-  const result = await runCompetitorContentAnalysis();
-  console.log(`[CRON] Competitor content: ${result.analyzed} keywords analyzed, ${result.errors} errors`);
+  await seoTenantSweep(
+    { workflowId: 'competitor-content-analysis', workflowName: 'Competitor Content Analysis' },
+    (tenantId) => runCompetitorContentAnalysis(tenantId),
+    (r) => r.analyzed,
+    (r) => `${r.analyzed} keywords analyzed, ${r.errors} errors`,
+  );
 }), { timezone: 'UTC' });
 console.log('[cron] Competitor content analysis scheduled — 1st & 15th of month at 9:00 AM IST');
 
 // RE-ENABLED 2026-07 (seo-learning-loop) — Serper calls now go through
-// checkAndIncrementSeoSerperCap() (seoWorkflowHealthService.ts) before this fires.
+// the per-tenant Serper cost guard (guardedSerperCall, seoSerperGuard.ts) before this fires.
 cron.schedule('30 4 15 * *', () => safeCron('SEO Content Gap Analysis', async () => {
   const { runContentGapAnalysis } = await import('./services/seoContentGapService');
-  const result = await runContentGapAnalysis();
-  console.log(`[CRON] Content gap analysis: ${result.gaps} gaps, ${result.opportunities} opportunities`);
+  await seoTenantSweep(
+    { workflowId: 'seo-content-gap-analysis', workflowName: 'SEO Content Gap Analysis' },
+    (tenantId) => runContentGapAnalysis(tenantId),
+    (r) => r.opportunities,
+    (r) => `${r.gaps} gaps, ${r.opportunities} opportunities`,
+  );
 }), { timezone: 'UTC' });
 console.log('[cron] SEO content gap analysis scheduled — 15th of month at 10:00 AM IST');
+
+// END SEO CRON BLOCK — src/__tests__/seoCronTenantSweep.test.ts slices between
+// this marker and the banner above to assert no SEO cron reaches
+// resolveDefaultSeoTenantId. It used to anchor on the 'Directory Scrapers'
+// cron, an unrelated job that simply happened to sit here — and when that cron
+// was deleted upstream the slice silently became the WHOLE file, so the guard
+// stopped guarding anything while still passing. Keep this marker.
 
 // PAUSED 2026-05-03 — Finance Monthly Generation (recurring expenses). Re-enable by uncommenting.
 /*

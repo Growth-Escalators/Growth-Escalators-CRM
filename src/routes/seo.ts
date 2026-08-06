@@ -6,8 +6,6 @@ import { SEO_WORKFLOWS } from '../services/seoWorkflowHealthService';
 
 const router = Router();
 
-const N8N_BASE = process.env.N8N_BASE_URL || 'https://primary-production-6c6f5.up.railway.app';
-
 const WORKFLOWS = [
   { id: 'YXmClFSKZB9DMkyu', name: 'GSC + GA4 Data Pull',          schedule: 'Monday 8AM IST',          num: 1  },
   { id: '5FVX2kEjuD7vWD0e', name: 'Alert Triggers',                schedule: 'Daily 9AM IST',            num: 2  },
@@ -242,19 +240,8 @@ router.post('/trigger/:workflowId', async (req: Request, res: Response) => {
       logger.info(`[seo] ran ${workflow.name} (backend-native) → ${result.detail}`);
       res.json({ ok: result.ok, workflow: workflow.name, method: 'backend', detail: result.detail });
     } else {
-      // Fallback to n8n webhook for workflows without backend implementation
-      const webhookUrl = `${N8N_BASE}/webhook/${webhookPath}`;
-      const triggerRes = await fetch(webhookUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          triggered_by: (req as Request & { user?: { id: string } }).user?.id ?? 'manual',
-          triggered_at: new Date().toISOString(),
-        }),
-        signal: AbortSignal.timeout(10000),
-      });
-      logger.info(`[seo] triggered ${workflow.name} via n8n → ${triggerRes.status}`);
-      res.json({ ok: triggerRes.ok, workflow: workflow.name, method: 'n8n', status: triggerRes.status });
+      // No backend-native implementation for this workflow
+      res.status(501).json({ error: 'workflow_not_implemented', workflow: workflow.id });
     }
   } catch (e) {
     logger.error('[seo] trigger error:', e);
@@ -288,15 +275,53 @@ router.get('/keywords-all', async (req: Request, res: Response) => {
 });
 
 // ---------------------------------------------------------------------------
+// FAIL-CLOSED GATE for the three programmatic-SEO routes below.
+//
+// programmaticSeoService.publishToWordPress() resolves its WordPress target
+// from GLOBAL env vars (WP_AGEDDENTISTRY_*), not from the tenant. The tenantId
+// those functions now accept scopes which client_pages rows are read and
+// written — it does NOT change where content actually gets published.
+//
+// So without this gate, a reseller admin pressing "generate" or "publish" would
+// draft pages onto Growth Escalators' own WordPress site. A comment does not
+// stop the request; this does.
+//
+// The rule: you may only drive these routes if the configured WordPress domain
+// is a site registered under YOUR tenant. Phase 3's SiteAdapter replaces this
+// by resolving the publish target per site, at which point the gate becomes a
+// per-site capability check instead of a single-domain one.
+//
+// Returns null when the caller is allowed; otherwise it has already responded.
+// ---------------------------------------------------------------------------
+async function assertOwnsWordPressTarget(tenantId: string, res: Response): Promise<boolean> {
+  const { getSeoSiteByDomain, normaliseDomain } = await import('../services/seoSiteRegistry');
+  const wpTarget = normaliseDomain(process.env.WP_AGEDDENTISTRY_URL || 'https://ageddentistry.org');
+  const owned = await getSeoSiteByDomain(tenantId, wpTarget);
+  if (!owned) {
+    res.status(409).json({
+      error: 'Programmatic page publishing is not available for your sites yet — the configured WordPress target is not a site you own.',
+      code: 'publish_target_not_owned',
+    });
+    return false;
+  }
+  return true;
+}
+
+// ---------------------------------------------------------------------------
 // POST /api/seo/generate-local-pages — programmatic SEO page generation
 // ---------------------------------------------------------------------------
 router.post('/generate-local-pages', async (req: Request, res: Response) => {
-  const user = (req as Request & { user?: { role: string } }).user;
+  const user = (req as Request & { user?: { role: string; tenantId?: string } }).user;
   if (user?.role !== 'admin') { res.status(403).json({ error: 'Admin only' }); return; }
+  const tenantId = user?.tenantId;
+  if (!tenantId) { res.status(401).json({ error: 'No tenant on session' }); return; }
 
   try {
+    // Generation publishes to WordPress as part of its run (see wpPublished in
+    // the result), so it is gated exactly like the explicit publish route.
+    if (!(await assertOwnsWordPressTarget(tenantId, res))) return;
     const { generateLocationPages } = await import('../services/programmaticSeoService');
-    const result = await generateLocationPages();
+    const result = await generateLocationPages(tenantId);
     res.json(result);
   } catch (e) {
     logger.error('[seo] generate-local-pages error:', e);
@@ -307,22 +332,55 @@ router.post('/generate-local-pages', async (req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 // POST /api/seo/regenerate-pages — delete old pages and generate fresh ones
 // ---------------------------------------------------------------------------
+// The domain is now a required body parameter, not the hardcoded
+// 'ageddentistry.org' this route used to pin. Two reasons: that is one of three
+// retired clients whose data is scheduled for deletion, and a reseller admin
+// hitting this endpoint would have deleted and regenerated pages for a domain
+// belonging to somebody else entirely.
+//
+// It must be a domain registered to the CALLER's tenant. Requiring it
+// explicitly rather than defaulting to "all this tenant's sites" is deliberate:
+// this endpoint deletes rows, and a destructive default is how you lose data
+// you meant to keep.
 router.post('/regenerate-pages', async (req: Request, res: Response) => {
-  const user = (req as Request & { user?: { role: string } }).user;
+  const user = (req as Request & { user?: { role: string; tenantId?: string } }).user;
   if (user?.role !== 'admin') { res.status(403).json({ error: 'Admin only' }); return; }
+
+  const tenantId = user?.tenantId;
+  if (!tenantId) { res.status(401).json({ error: 'No tenant on session' }); return; }
+
+  const domain = typeof req.body?.domain === 'string' ? req.body.domain.trim() : '';
+  if (!domain) {
+    res.status(400).json({ error: 'domain is required', code: 'domain_required' });
+    return;
+  }
 
   try {
     const { pool } = await import('../db/index');
-    const { resolveDefaultSeoTenantId } = await import('../services/seoTenantContext');
-    const tenantId = await resolveDefaultSeoTenantId();
-    // Delete old pages (scoped to the same tenant generateLocationPages() writes under)
-    const del = await pool.query(`DELETE FROM client_pages WHERE client_domain = 'ageddentistry.org' AND tenant_id = $1`, [tenantId]);
-    logger.info(`[seo] Deleted ${del.rowCount} old pages`);
+    const { getSeoSiteByDomain } = await import('../services/seoSiteRegistry');
 
-    // Generate new pages
+    // Ownership check before the DELETE, not after — an unregistered domain
+    // must not be able to delete anything, even zero rows.
+    const site = await getSeoSiteByDomain(tenantId, domain);
+    if (!site) {
+      res.status(404).json({ error: 'No site registered for that domain under this tenant', code: 'site_not_found' });
+      return;
+    }
+
+    // Both checks run BEFORE the DELETE. Gating after it would delete the
+    // caller's pages and then refuse to regenerate them — destroying data on
+    // the path that rejects the request.
+    if (!(await assertOwnsWordPressTarget(tenantId, res))) return;
+
+    const del = await pool.query(
+      `DELETE FROM client_pages WHERE client_domain = $1 AND tenant_id = $2`,
+      [site.domain, tenantId],
+    );
+    logger.info(`[seo] Deleted ${del.rowCount} old pages for ${site.domain}`);
+
     const { generateLocationPages } = await import('../services/programmaticSeoService');
-    const result = await generateLocationPages();
-    res.json({ ...result, oldPagesDeleted: del.rowCount });
+    const result = await generateLocationPages(tenantId);
+    res.json({ ...result, oldPagesDeleted: del.rowCount, domain: site.domain });
   } catch (e) {
     logger.error('[seo] regenerate-pages error:', e);
     res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
@@ -332,13 +390,30 @@ router.post('/regenerate-pages', async (req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 // POST /api/seo/publish-pending-pages — publish draft_local pages to WordPress
 // ---------------------------------------------------------------------------
+// Publishes to a live external website. The tenant comes off the session, never
+// the body — a client-supplied tenant id here would let one agency publish into
+// another agency's client's site.
+//
+// FAIL-CLOSED GATE. programmaticSeoService.publishToWordPress() resolves its
+// WordPress target from GLOBAL env vars (WP_AGEDDENTISTRY_*), not from the
+// tenant. So the tenantId below scopes which client_pages rows get read, but
+// NOT where the content lands: without this gate, a reseller admin pressing
+// "publish" would draft their pages onto Growth Escalators' own WordPress site.
+//
+// Until Phase 3's SiteAdapter resolves the publish target per site, this
+// endpoint is restricted to the tenant that actually owns the configured
+// WordPress domain. Everyone else gets a 409 that says so. A gate is used
+// rather than a comment because the comment does not stop the request.
 router.post('/publish-pending-pages', async (req: Request, res: Response) => {
-  const user = (req as Request & { user?: { role: string } }).user;
+  const user = (req as Request & { user?: { role: string; tenantId?: string } }).user;
   if (user?.role !== 'admin') { res.status(403).json({ error: 'Admin only' }); return; }
+  const tenantId = user?.tenantId;
+  if (!tenantId) { res.status(401).json({ error: 'No tenant on session' }); return; }
 
   try {
+    if (!(await assertOwnsWordPressTarget(tenantId, res))) return;
     const { publishPendingToWordPress } = await import('../services/programmaticSeoService');
-    const result = await publishPendingToWordPress();
+    const result = await publishPendingToWordPress(tenantId);
     res.json(result);
   } catch (e) {
     logger.error('[seo] publish-pending error:', e);
@@ -462,9 +537,49 @@ router.post('/competitor-brief', async (req: Request, res: Response) => {
   if (!keyword || !clientDomain) { res.status(400).json({ error: 'keyword and clientDomain required' }); return; }
 
   try {
+    const tenantId = req.user!.tenantId;
+
+    // Resolve the site so spend is attributed to it, and so the per-SITE cap
+    // applies rather than only the tenant-wide one. A domain with no
+    // registered site still runs — it just gets tenant-level caps only.
+    const { getSeoSiteByDomain } = await import('../services/seoSiteRegistry');
+    const site = await getSeoSiteByDomain(tenantId, clientDomain).catch(() => null);
+
+    // Pre-flight the cost guard so an exhausted cap comes back as a real
+    // refusal with a code, not as an empty competitor list the operator has
+    // no way to interpret. The cron path (runCompetitorContentAnalysis) keeps
+    // the opposite behaviour — skip and continue — because a sweep that
+    // aborted on the first capped keyword would be worse than a partial one.
+    const { evaluateSeoSpend, createSeoSpendContextResolver } = await import('../services/seoSerperGuard');
+    const evaluation = await evaluateSeoSpend({
+      tenantId,
+      siteId: site?.id ?? null,
+      // Without this the paused-site and plan-limit checks are inert: a site
+      // paused for billing or abuse would keep spending, and every tenant
+      // would silently get the global env defaults regardless of the plan
+      // they bought.
+      spendContext: createSeoSpendContextResolver(tenantId),
+      operation: 'serper_search',
+      label: 'competitor-brief',
+    });
+    if (!evaluation || !evaluation.allowed) {
+      // A null evaluation means the guard itself failed — fail closed, same
+      // as guardedSerperCall does.
+      res.status(evaluation?.httpStatus ?? 503).json({
+        error: evaluation?.blockCode ?? 'cost_guard_unavailable',
+        message: evaluation?.blockReasons.join(' ') ?? 'Spend guard could not be evaluated.',
+        budget: evaluation?.budget,
+      });
+      return;
+    }
+
     const { fetchCompetitorPages, analyzeCompetitorContent } = await import('../services/competitorContentService');
-    const competitors = await fetchCompetitorPages(keyword);
-    const analysis = await analyzeCompetitorContent(keyword, clientDomain, competitors, req.user!.tenantId);
+    // tenantId/siteId passed explicitly. Without them this fell back to
+    // resolveDefaultSeoTenantId(), which THROWS once a second tenant has the
+    // SEO feature enabled — the C2 blocker every cron was converted away from
+    // in Phase 2, still latent on this route until now.
+    const competitors = await fetchCompetitorPages(keyword, tenantId, site?.id ?? null);
+    const analysis = await analyzeCompetitorContent(keyword, clientDomain, competitors, tenantId);
     res.json({ keyword, clientDomain, competitors, analysis });
   } catch (e) {
     logger.error('[seo] competitor-brief error:', e);
@@ -506,11 +621,13 @@ router.get('/content-calendar', async (req: Request, res: Response) => {
   try {
     const { pool: dbPool } = await import('../db/index');
     const { client, status, limit } = req.query;
+    const tenantId = req.user!.tenantId;
     let query = `SELECT * FROM seo_content_calendar WHERE 1=1`;
     const params: unknown[] = [];
     let idx = 0;
     if (client) { idx++; query += ` AND client_domain = $${idx}`; params.push(client); }
     if (status) { idx++; query += ` AND status = $${idx}`; params.push(status); }
+    idx++; query += ` AND tenant_id = $${idx}`; params.push(tenantId);
     query += ` ORDER BY CASE priority WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END, created_at DESC`;
     if (limit) { idx++; query += ` LIMIT $${idx}`; params.push(Number(limit)); }
     const result = await dbPool.query(query, params);
@@ -521,9 +638,10 @@ router.get('/content-calendar', async (req: Request, res: Response) => {
   }
 });
 
-router.get('/content-calendar/summary', async (_req: Request, res: Response) => {
+router.get('/content-calendar/summary', async (req: Request, res: Response) => {
   try {
     const { pool: dbPool } = await import('../db/index');
+    const tenantId = req.user!.tenantId;
     const result = await dbPool.query(`
       SELECT
         client_domain,
@@ -533,9 +651,10 @@ router.get('/content-calendar/summary', async (_req: Request, res: Response) => 
         COUNT(*) FILTER (WHERE status = 'published') AS published,
         COUNT(*) AS total
       FROM seo_content_calendar
+      WHERE tenant_id = $1
       GROUP BY client_domain
       ORDER BY client_domain
-    `);
+    `, [tenantId]);
     res.json(result.rows);
   } catch (e) {
     logger.error('[seo] content-calendar summary error:', e);
@@ -547,6 +666,7 @@ router.patch('/content-calendar/:id', async (req: Request, res: Response) => {
   try {
     const { pool: dbPool } = await import('../db/index');
     const { id } = req.params;
+    const tenantId = req.user!.tenantId;
     const { status, title, assigned_to, target_publish_date, published_url, notes, priority } = req.body;
     const fields: string[] = [];
     const values: unknown[] = [];
@@ -561,7 +681,10 @@ router.patch('/content-calendar/:id', async (req: Request, res: Response) => {
     if (fields.length === 0) { res.status(400).json({ error: 'No fields to update' }); return; }
     fields.push('updated_at = NOW()');
     idx++; values.push(id);
-    const result = await dbPool.query(`UPDATE seo_content_calendar SET ${fields.join(', ')} WHERE id = $${idx} RETURNING *`, values);
+    const idIdx = idx;
+    idx++; values.push(tenantId);
+    const tenantIdx = idx;
+    const result = await dbPool.query(`UPDATE seo_content_calendar SET ${fields.join(', ')} WHERE id = $${idIdx} AND tenant_id = $${tenantIdx} RETURNING *`, values);
     if (result.rows.length === 0) { res.status(404).json({ error: 'Not found' }); return; }
     const row = result.rows[0] as Record<string, unknown>;
 
@@ -570,8 +693,8 @@ router.patch('/content-calendar/:id', async (req: Request, res: Response) => {
     // sendWeeklyOpportunityDigest's 14-day outcome check can actually fire.
     if (published_url !== undefined && row.opportunity_id) {
       await dbPool.query(
-        `UPDATE seo_opportunities SET published_url = $1 WHERE id = $2`,
-        [published_url, row.opportunity_id],
+        `UPDATE seo_opportunities SET published_url = $1 WHERE id = $2 AND tenant_id = $3`,
+        [published_url, row.opportunity_id, tenantId],
       ).catch((e) => {
         logger.warn(`[seo] failed to propagate published_url to opportunity ${row.opportunity_id}: ${e instanceof Error ? e.message : String(e)}`);
       });
@@ -587,17 +710,30 @@ router.patch('/content-calendar/:id', async (req: Request, res: Response) => {
 router.post('/content-calendar', async (req: Request, res: Response) => {
   try {
     const { pool: dbPool } = await import('../db/index');
+    const tenantId = req.user!.tenantId;
     const { client_domain, keyword, content_type, title, priority, assigned_to, target_publish_date, notes } = req.body;
     if (!client_domain || !keyword) { res.status(400).json({ error: 'client_domain and keyword are required' }); return; }
     const result = await dbPool.query(`
-      INSERT INTO seo_content_calendar (client_domain, keyword, content_type, title, priority, assigned_to, target_publish_date, notes, source)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'manual')
-      ON CONFLICT (client_domain, keyword, content_type) DO UPDATE SET
+      INSERT INTO seo_content_calendar (client_domain, keyword, content_type, title, priority, assigned_to, target_publish_date, notes, source, tenant_id)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'manual', $9)
+      -- Was ON CONFLICT (client_domain, keyword, content_type) — a 3-column
+      -- target with no tenant in it. The INSERT bound tenant_id correctly, but
+      -- the conflict target did not: if tenant A already had a calendar row for
+      -- (example.com, "dental implants", blog), tenant B creating the same
+      -- entry did not insert its own row — it silently UPDATED TENANT A'S ROW,
+      -- overwriting their title and priority. A cross-tenant write through a
+      -- correctly-scoped INSERT.
+      --
+      -- This was the last 3-column target in the repo; migration 0047 drops the
+      -- old index it referred to. Both had to land together: a 4-column target
+      -- while the 3-column UNIQUE index still existed would turn the silent
+      -- overwrite into a unique-violation 500 instead of a clean insert.
+      ON CONFLICT (tenant_id, client_domain, keyword, content_type) DO UPDATE SET
         title = COALESCE(EXCLUDED.title, seo_content_calendar.title),
         priority = COALESCE(EXCLUDED.priority, seo_content_calendar.priority),
         updated_at = NOW()
       RETURNING *
-    `, [client_domain, keyword, content_type || 'blog', title, priority || 'medium', assigned_to, target_publish_date, notes]);
+    `, [client_domain, keyword, content_type || 'blog', title, priority || 'medium', assigned_to, target_publish_date, notes, tenantId]);
     res.json(result.rows[0]);
   } catch (e) {
     logger.error('[seo] content-calendar create error:', e);
@@ -608,7 +744,9 @@ router.post('/content-calendar', async (req: Request, res: Response) => {
 router.delete('/content-calendar/:id', async (req: Request, res: Response) => {
   try {
     const { pool: dbPool } = await import('../db/index');
-    await dbPool.query('DELETE FROM seo_content_calendar WHERE id = $1', [req.params.id]);
+    const tenantId = req.user!.tenantId;
+    const result = await dbPool.query('DELETE FROM seo_content_calendar WHERE id = $1 AND tenant_id = $2', [req.params.id, tenantId]);
+    if (result.rowCount === 0) { res.status(404).json({ error: 'Not found' }); return; }
     res.json({ deleted: true });
   } catch (e) {
     logger.error('[seo] content-calendar delete error:', e);

@@ -176,36 +176,17 @@ export async function ensureSeoTables(): Promise<void> {
       .catch(e => logger.warn(`[seo-tables] tenant_id index failed for ${table}: ${e instanceof Error ? e.message : String(e)}`));
   }
 
-  // Looker Studio views
-  const views = [
-    `CREATE OR REPLACE VIEW seo_looker_weekly AS
-     SELECT project_name AS client_domain, project_name AS client_name, week_start_date AS week_start,
-       total_clicks, total_impressions,
-       ROUND(avg_position::numeric, 1) AS avg_position,
-       ga4_sessions,
-       LAG(total_clicks) OVER (PARTITION BY project_name ORDER BY week_start_date) AS prev_week_clicks,
-       LAG(total_impressions) OVER (PARTITION BY project_name ORDER BY week_start_date) AS prev_week_impressions
-     FROM seo_weekly_metrics ORDER BY project_name, week_start_date DESC`,
-    `CREATE OR REPLACE VIEW seo_looker_keywords AS
-     SELECT keyword, project_name AS client_domain, current_position AS position, previous_position,
-       (COALESCE(previous_position,0) - current_position) AS position_improvement,
-       search_volume, recorded_date AS checked_at,
-       CASE WHEN current_position <= 3 THEN 'Top 3' WHEN current_position <= 10 THEN 'Page 1'
-            WHEN current_position <= 20 THEN 'Page 2' ELSE 'Page 3+' END AS ranking_tier
-     FROM keyword_rankings ORDER BY project_name, current_position ASC`,
-    `CREATE OR REPLACE VIEW seo_looker_alerts AS
-     SELECT project_name AS client_domain, alert_type, message AS alert_message,
-       severity, created_at, DATE_TRUNC('week', created_at) AS alert_week
-     FROM seo_alerts_log ORDER BY created_at DESC`,
-    `CREATE OR REPLACE VIEW seo_looker_health AS
-     SELECT project_name AS client_domain, pagespeed_mobile AS mobile_score,
-       pagespeed_desktop AS desktop_score, lcp, fid, cls, checked_at AS created_at,
-       CASE WHEN pagespeed_mobile >= 90 THEN 'Good' WHEN pagespeed_mobile >= 50 THEN 'Needs Improvement' ELSE 'Poor' END AS mobile_status
-     FROM site_health_metrics ORDER BY project_name, checked_at DESC`,
-  ];
-  for (const v of views) await pool.query(v).catch(e => logger.warn(`[seo-views] ${e instanceof Error ? e.message : String(e)}`));
+  // The four seo_looker_* views that used to be (re)created here were dropped
+  // in migration 0045. They selected no tenant_id and filtered on none, so they
+  // exposed every tenant's rows through one shared connection — and because
+  // this function is reachable from the unauthenticated
+  // GET /api/system/health/seo-data, any caller could trigger the rebuild.
+  // Confirmed with the product owner that no Looker Studio dashboard reads
+  // them. View DDL belongs in a migration, not in a runtime bootstrap; if a
+  // reporting surface is ever needed again, add it there — tenant-scoped —
+  // rather than reinstating it here.
 
-  logger.info('[seo-tables] SEO tables + Looker Studio views bootstrapped');
+  logger.info('[seo-tables] SEO tables bootstrapped');
 }
 
 // ---------------------------------------------------------------------------
@@ -301,6 +282,13 @@ export async function logSeoWorkflowRun(args: {
   triggeredBy?: 'cron' | 'manual' | 'schedule';
   recordsProcessed?: number;
   errorMessage?: string;
+  // Migration 0045 added seo_workflow_logs.tenant_id but this INSERT never
+  // populated it, so every run row landed with a NULL tenant — meaning the
+  // System Health page could not say WHOSE workflow failed once more than one
+  // tenant runs SEO. Nullable rather than required: a sweep that spans every
+  // tenant (checkWorkflowHealth's own bookkeeping) genuinely has no single
+  // owner, and back-filling old NULL rows is not possible.
+  tenantId?: string;
 }): Promise<void> {
   const finishedAt = new Date();
   const durationSeconds = Math.round((finishedAt.getTime() - args.startedAt.getTime()) / 1000);
@@ -308,8 +296,8 @@ export async function logSeoWorkflowRun(args: {
     await pool.query(
       `INSERT INTO seo_workflow_logs
         (workflow_id, workflow_name, status, started_at, finished_at, duration_seconds,
-         error_message, records_processed, triggered_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+         error_message, records_processed, triggered_by, tenant_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
       [
         args.workflowId,
         args.workflowName,
@@ -320,6 +308,7 @@ export async function logSeoWorkflowRun(args: {
         args.errorMessage ?? null,
         args.recordsProcessed ?? null,
         args.triggeredBy ?? 'cron',
+        args.tenantId ?? null,
       ],
     );
   } catch (e) {

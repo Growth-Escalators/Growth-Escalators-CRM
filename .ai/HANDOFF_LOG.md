@@ -6,6 +6,363 @@ Format: `## YYYY-MM-DD — <title> — <agent>` then a few bullets (what changed
 
 ---
 
+## 2026-08-05 — SEO Phase 5: drift sweep, GSC to Postgres, and caps that actually fire — Claude
+
+Branch `fix/wizmatch-scoring-pipeline`, commits `b7aaa9b0`, `26a8d434`, `44f2a015`. Not pushed.
+
+**The drift sweep** — daily, per tenant, hash-compare-first so "nothing changed" costs one integer
+comparison. `unexpected_edit` is the one it exists for. `seoDriftClassifier.ts` holds the pure
+logic: a 48-hour attribution window (a CDN can lag a publish by hours, and misattributing our own
+change burns trust in the alert), and severity ordering so a page that went `noindex` AND had its
+title edited reports as the noindex. **Known gap, stated not papered over:** the plan's third URL
+source (top GSC URLs by impressions) is NOT implemented — no per-URL GSC table exists and the lane
+correctly refused to invent one.
+
+**`GE SEO Pull` is gone.** It spawned `npx tsx` and wrote to Railway's ephemeral filesystem, so the
+data was routinely gone before anyone read it. Now `SEO GSC Pull`, importable, per-tenant, writing
+to existing Postgres tables. The stale `GE SEO Pull` entry in `CRON_WINDOWS` was removed — left in,
+it would report a nonexistent cron as perpetually overdue.
+
+**Three defects found by reading test OUTPUT rather than assertions:**
+
+1. `logger.warn`/`.info`/`.debug` were **discarding their message**. The wrapper takes console-style
+   `(msg, data)`; `error` also had a branch for pino-style `({fields}, msg)`, the other three did
+   not — they fell through to `String(msg)`, rendering `[object Object]` and dropping the message.
+   **31 warn + 15 info call sites repo-wide** were emitting useless lines. Fixed in the wrapper.
+2. The paused-site and plan-limit caps were **implementable but not enforced** — `spendContext` was
+   optional and nothing passed it. Now threaded through all four spend sites and the route, with a
+   test proving a paused site never calls `fetch`.
+3. Four services logged "SEO Serper daily cap reached" for any block, including a paused site.
+   Guessing a cause in a log is worse than not naming one.
+
+**Also removed** an unreachable credential path in `wordpress.provider.ts` — a fallback to
+`adapterConfig.credentialProvider` justified by a comment I wrote claiming existing rows depended on
+it. `assertNoSecretKeys` has 400'd any `/credential/i` key since the registry's first commit, so no
+such row could ever have existed.
+
+**Verification:** build 0 · admin build 0 · `npm test` 3044 passing against the unchanged
+7-file/21-failure baseline · `lint:tenant-scoping` zero new findings.
+
+**Still owner-gated:** the branch push (blocked by the permission classifier), Railway backups
+(dashboard-only — the CLI has no backup subcommand and the GraphQL reads return Not Authorized), and
+the credential rotation.
+
+---
+
+## 2026-08-05 — SEO Phase 4: the approval queue, a spend ledger that guards, and a log redactor — Claude
+
+Branch `fix/wizmatch-scoring-pipeline`, commit `95b10e7e`. Not on `main`, not pushed. Seven parallel
+lanes; the contract, schema, shared wiring and all verification owned centrally.
+
+**Shipped.** `/api/seo-changes` (list/stage/verify/approve/reject/publish/preview) with every row
+carrying backend-computed `capabilities`, so the UI cannot offer a button the API will refuse —
+`siteChangeCapabilities.ts` is the one calculation, and PR 8A's "the workbench showed actions a
+staff member's role always 403s" is the defect it exists to prevent recurring. `SeoApprovalsPage.jsx`
+with three preview tiers chosen by capability, never by platform name. Migration `0049` for
+`seo_api_usage`. Four real Serper spend sites moved off the in-memory global cap. WordPress and
+Shopify credential entry in the admin — until now the only way to store one was a raw API call.
+
+**Two things worth carrying forward.**
+
+`drizzle-kit` emitted a DROP + re-ADD of `site_changes_approved_requires_approver` with
+byte-identical CHECK text — a snapshot artefact of 0048 having moved that constraint into its own
+guarded DO block. Both statements deleted by hand; 0049 documents that a re-emission should be
+deleted again, but that a DROP with a *different* body is a real change needing a human. Verified
+against local Postgres afterwards that the constraint still rejects an approved row with no approver.
+
+The approvals route logged provider errors verbatim while carefully keeping them out of the
+response body — and a test fixture proved the point by putting a token in one. Refusing to return
+text because an adapter "might have embedded a token" while writing that same text into retained
+logs is half a control. `src/utils/redactSecrets.ts` is the other half. **Its own first test passed
+for the wrong reason**: an 18-character fixture matched the `Bearer|Basic|Token` rule's 8-character
+minimum, so it went green while the real six-character token still leaked. The test now pins the
+exact route fixture byte-for-byte.
+
+**A vitest trap, twice now.** `rankTracking.test.ts` had `vi.mock` calls nested inside three `it()`
+blocks under a "re-apply mocks after resetModules" comment. They hoist, and the last registration in
+source order wins for every import — so they silently overrode the top-level factory for the whole
+file, and adding the missing mock at the top changed nothing. `vi.resetModules()` clears the module
+cache, not the mock registry. The file's own header comment warned about this exact trap.
+
+**Correction to the record.** Earlier notes implied the WordPress fix was "store a credential in
+`tenant_integrations`, then delete the `WP_AGEDDENTISTRY_*` vars". Verified against `origin/main`:
+the store, the route and `credentialEncryption` **are all on main today**. What is NOT on main is any
+*consumer* — `programmaticSeoService.publishToWordPress()` is still the only reader and it reads
+`process.env`. So the correct sequence is rotate the app password and **update** the Railway vars;
+deleting them silently stops WordPress publishing until this branch ships.
+
+**Three things closed after the lanes reported** (`c16ae900`, `1bf31de0`). The UI lane found that
+`SITE_CHANGE_ACTIONS` had no retry while the state machine's only path out of `publish_failed` is
+`retry_publish` — so a failed publish was a dead end whose sole enabled action was `reject`, on the
+one status meaning a client's site did NOT get an approved change. It also caught that my route
+wiring omitted `AppLayout` (the known `SEOPage` defect, on the page being sold). And re-reading the
+plan rather than my summary of it: **the Phase 4 exit criterion "per-site Serper cap returns 429
+with `site_daily_serper_cap_exhausted`" had never been delivered** — `guardedSerperCall` skips and
+continues, which is right for a cron sweep and useless on a route. `evaluateSeoSpend()` is the
+route-side pre-flight; `POST /competitor-brief` now returns the guard's own status and block code,
+and passes `tenantId`/`siteId` explicitly instead of falling back to `resolveDefaultSeoTenantId()`
+— a latent C2 throw that would have 500'd that route the moment a second tenant got `seo:true`.
+
+**Verification:** build 0 · admin build 0 · `npm test` 2989 passing against the unchanged
+7-file/21-failure env-dependent baseline · `lint:tenant-scoping` zero new findings · `0049` applied
+to local dev only.
+
+**Also added** `docs/go-live/RAILWAY_BACKUP_PLAN.md` — read-only investigation, nothing on Railway
+created, modified or restarted. Its own headline finding is honest: the backup/PITR state could not
+be read through the API or CLI at all, so the first step is a dashboard look, not a change.
+
+---
+
+## 2026-08-05 — SEO Phase 3: the SiteAdapter, staged changes, and the human-approval hard stop — Claude
+
+Branch `fix/wizmatch-scoring-pipeline`. Not on `main`, not pushed. Third execution phase of the
+multi-tenant SEO plan (`~/.claude/plans/can-you-check-the-atomic-cascade.md`). Three parallel lanes
+(one per platform adapter) under exclusive file ownership; the contract, the schema, the service and
+all verification were owned centrally.
+
+**What this phase is actually about.** Phases 1–2 made the SEO system multi-tenant. This one gives it
+the ability to *change a client's live website* — which means the whole phase is really about one
+invariant: **nothing publishes without a recorded human approval.** That is now enforced at three
+independent layers, deliberately:
+
+1. **The database** — migration `0048`'s `site_changes_approved_requires_approver` CHECK rejects any
+   row in `approved`/`publishing`/`published`/`handoff_required`/`publish_failed` without both
+   `approved_by` and `approved_at`. Verified empirically against local Postgres: all five statuses
+   rejected without an approver, accepted with one (probe run inside a transaction, rolled back).
+2. **`siteChangeService.publishApprovedChange()`** — the sole caller of `provider.publishChange()`
+   anywhere in `src/`, and it runs `assertSiteChangeApproved()` first. `siteChangeService.test.ts`
+   walks `src/` and fails if a second caller ever appears, so "sole caller" is a test, not a comment.
+3. **Each adapter** — all three re-check `approved.approvedBy` before their first network call.
+   Tested by asserting the injected fetch was never called.
+
+**A dead path the tests found.** The transition table originally allowed `publish_failed →
+publishing` for retries, but `assertSiteChangeApproved` requires status *exactly* `approved`, so that
+edge was unreachable. The tempting fix — loosen the assertion to accept `publish_failed` too — was
+rejected: the assertion's value is that it names one status. Retry is now an explicit
+`retry_publish` transition back through `approved`, which preserves the original approval record and
+leaves the retry visible in the row's history.
+
+**A hazard created by this phase's own success.** Phase 1's factory took a single global
+`SITE_PROVIDER` name, harmless while `mock` was the only builder. With three real adapters
+registered, `SITE_PROVIDER=wordpress` would have routed git and Shopify sites through the WordPress
+adapter — the exact cross-wiring the per-platform singleton Map exists to prevent, reintroduced
+through the env. `SITE_PROVIDER` now accepts only `platform` (each platform uses its own adapter) or
+`mock`; a platform name is rejected with an explicit message.
+
+**New files:** `src/modules/site/liveSnapshot.ts` (shared live-page reader + `extractSeoElements`,
+SSRF-guarded on *every* redirect hop, 2 MB body cap, no new dependency),
+`src/modules/site/providers/{git,wordpress,shopify}.provider.ts`, `src/services/siteChangeService.ts`,
+migration `0048` (`site_changes` + `seo_site_snapshots`), and five test files (+189 tests).
+
+**WordPress is written but stays gated.** The adapter reads credentials *only* via
+`getDecryptedCredentials(tenantId, …)` and contains zero `process.env` reads — the leaked
+`WP_AGEDDENTISTRY_*` application passwords are unreachable from it by construction, and a test greps
+the module source to keep it that way. The legacy `programmaticSeoService.publishToWordPress()` was
+left untouched; retiring it is a follow-up that should happen *after* the rotation, not before.
+`SITE_ADAPTER_ENABLED` still defaults false, so none of this is reachable in production yet.
+
+**Verification:** `npm run build` exit 0 · `npm run admin:build` exit 0 · `npm test` **7 failed files
+/ 21 failures — the exact pre-existing env-dependent baseline**, 2865 passing (was 2700) ·
+`npm run lint:tenant-scoping` zero new findings, baseline unchanged at 70 · migration `0048` applied
+to local dev only.
+
+**One real bug found by the lanes themselves, fixed in `f06c6557`.** Two of the three adapter lanes
+independently flagged that `verifyChange` receives only a `SiteStageResult` and `ApprovedSiteChange`
+carries nothing about the original request, so all three had parked stage-time context in an
+in-process Map. That is fine only if staging and publishing share a process — and they don't: a
+change is staged when proposed and published after a human approves it hours later, by which point
+this repo has usually redeployed. On the *normal* path this meant an approved Shopify change's
+`redirectFrom` URLs were never created and WordPress's "cannot write your canonical" warning
+vanished from verification, both silently. `verifyChange` now takes the change and
+`ApprovedSiteChange` carries it; the Maps are fallbacks, and WordPress's is bounded (it was
+unevicted). Also: `SiteRef` gained `credentialProvider`, because `seo_sites.credential_provider` was
+written by the admin and read by nobody — one adapter looked in `adapterConfig`, the other hardcoded
+its platform name. Three regression tests, each verified red against the unfixed service.
+
+**Method note worth keeping.** The lanes' reports arrived after the phase was committed and green.
+Two of them contained the same finding, described as an interface limitation they had worked around
+rather than as a bug — it only reads as a bug once you know the deploy cadence. Read lane reports
+for the workarounds, not just the deviations: a workaround is a defect that hasn't been priced yet.
+
+**Next:** Phase 4 (approval UI + wiring the cost guard onto real routes). The drift sweep (Phase 5)
+already has its storage and its extractor — `seo_site_snapshots` and `extractSeoElements`/
+`diffSeoElements` — so that phase is now mostly wiring.
+
+---
+
+## 2026-08-05 — SEO Phase 2: site registry, de-hardcoding, and the per-tenant cron sweep (the C2 blocker) — Claude
+
+Branch `fix/wizmatch-scoring-pipeline`. Not on `main`, not pushed. Second execution phase of the
+multi-tenant SEO plan (`~/.claude/plans/can-you-check-the-atomic-cascade.md`). Built with six
+parallel lanes under exclusive file ownership; build/test run centrally only.
+
+**The headline fix (C2).** `resolveDefaultSeoTenantId()` throws the moment a second active tenant
+has `seo: true` — `getSingleActiveTenantWithFeature` deliberately refuses to guess who owns the
+data. Every SEO cron reached that throw, so **selling the SEO add-on to a second agency would have
+killed every SEO cron for every tenant, GE's own included**, with no code change to point at as the
+cause. All eleven SEO crons now sweep per tenant via the new `forEachSeoTenant()`, which isolates
+per-tenant failures so one tenant's expired token cannot skip everyone behind it. Every SEO service
+entry point gained an optional `tenantId?`. The throw itself is untouched — it is correct.
+Pinned by `src/__tests__/seoCronTenantSweep.test.ts`, which asserts at source level that nothing in
+the SEO cron block calls the single-tenant resolver.
+
+**Same blocker, three more places, all found while wiring the above:** `systemHealthMonitor`'s
+`checkSeo()` caught the throw and would have pinned the SEO card to WARNING forever (now sweeps per
+tenant and reports worst-of with the offending tenant named); the unauthenticated
+`/api/system/health/seo-data` would have 500'd (now pins GE's tenant by slug); and `index.ts`'s
+startup PageSpeed backfill would have silently skipped every tenant (now sweeps).
+
+**Migration 0046** — `seo_sites` registry + nullable `site_id` on the nine SEO tables, seeded from
+existing `(tenant_id, client_domain)` pairs and backfilled. Fully additive; no SET NOT NULL, no
+unique index over existing data, no DROP. Verified against a fixture before landing: two tenants
+sharing a domain each get their own row and are never cross-linked. The TS `normaliseDomain()` was
+checked to produce byte-identical output to the migration's SQL on eight cases — if those diverge
+the backfill silently matches nothing.
+
+**Nine hardcoded client-domain lists removed.** The three retired clients (aarohaom.com,
+blackpandaenterprises.com, ageddentistry.org) no longer appear as a fallback anywhere a new tenant
+could hit — including the Co-Pilot's AI system prompt, which was telling every tenant it worked on
+GE's clients. Domains now come from the tenant's own `seo_sites` registry; an empty registry means
+"this tenant registered no sites", which is the correct answer and costs zero paid API calls.
+
+**Three things were hard-gated rather than left as comments**, because a comment does not stop a
+request:
+- `publishToWordPress()` resolves its target from GLOBAL env vars, so any reseller admin pressing
+  publish would have drafted onto GE's own WordPress site. The three programmatic-SEO routes now
+  403/409 unless the configured WP domain is a site registered to the caller's tenant. The gate runs
+  *before* `/regenerate-pages`' DELETE, so a rejected caller does not lose rows.
+- The SEO digest (fixed Slack channel) and weekly email (hardcoded `jatin@growthescalators.com`)
+  have no per-tenant recipient. Both crons now skip any non-GE tenant with a loud warning rather
+  than shipping a reseller's data into GE's inbox. Both are env-gated off today; the guard exists so
+  flipping the flag later fails closed.
+- `seedClientKnowledgeBase()` is now a no-op. It ran on **every boot** and upserted three retired
+  clients' brand copy — it would have fought the planned data purge forever, resurrecting the rows
+  on each deploy.
+
+**Migration 0047 — the deferred half of 0045.** `seo_content_calendar`'s legacy 3-column unique
+index `(client_domain, keyword, content_type)` is dropped. 0045 added the tenant-scoped 4-column
+index alongside it and kept the old one because in-flight code still named the 3-column
+`ON CONFLICT` target; every writer now names the 4-column one. This was NOT merely redundant
+cleanup: UNIQUE on three columns with no tenant made the combination **globally exclusive**, so two
+agencies could not both track the same keyword on the same domain. `routes/seo.ts`'s
+`POST /content-calendar` was the last 3-column target — it bound `tenant_id` on the INSERT but not
+in the conflict target, so **tenant B creating an existing entry silently UPDATED tenant A's row**.
+Route fix and index drop had to land together: a 4-column target with the old UNIQUE index still
+present converts the silent overwrite into a 500. `ensureContentCalendarTable()` also stopped
+re-creating the old index, which would otherwise have undone 0047 on the next boot.
+
+**Pre-existing cross-tenant leaks found by the lanes, outside the assigned scope, fixed:**
+- `brandHealthService`: `calcWhatsappScore()`, `calcRetentionScore()`, `getPreviousScore()` had **no
+  `tenant_id` binding at all** — every client's scores were computed over every tenant's
+  messages/enrolments/jobs/contacts/deals pooled together.
+- `intelligenceDataCollector`: sections 10–14 and `collectSystemErrors()` likewise unscoped (while
+  sections 1–9 in the same function were correctly scoped). Fixing the `audit_events` filter also
+  repaired an `OR`/`AND` precedence bug that left the `%error%` branch with no time bound.
+- `seoIndexingQueueService.markIndexingReminded(ids)`: `WHERE id = ANY(...)` with no tenant
+  predicate — safe only by caller invariant, now bound at the statement.
+- `seoContentDecayService` / `seoContentGapService`: both `INSERT INTO seo_content_calendar`
+  statements never bound `tenant_id`, relying on the sentinel column default 0045 removed.
+
+**Also fixed:** `logSeoWorkflowRun()` never populated `seo_workflow_logs.tenant_id` (added in 0045),
+so every run row had a NULL owner; it now writes one row per tenant. Eleven SEO crons were missing
+from `CRON_WINDOWS` entirely, so **no SEO cron has ever appeared on the System Health page** — the
+page the add-on is sold on. All now registered.
+
+**Verify:** `npm run build` exit 0; `npm run admin:build` exit 0 (the backend build is `tsc` only
+and does not typecheck admin JSX — build both; a lane's test edits passed vitest while failing
+`tsc`, since vitest does not typecheck). `npm test`: **7 failed files / 21 failures, byte-identical
+to the pre-existing baseline** — measured by stashing this work and re-running, not assumed — with
+**79 new tests passing** (2700 vs 2621). `npm run lint:tenant-scoping`: zero new findings, baselined
+findings **79 → 70**. Migrations 0046/0047 applied to local dev; the seed/backfill was run against a
+two-tenant fixture inside a rolled-back transaction to prove two tenants sharing a domain are not
+cross-linked.
+
+**Known gaps, deliberately not fixed here:** the WordPress target and the Slack/email recipients are
+still not per-tenant — Phase 3's SiteAdapter and a `tenant_integrations`-backed recipient are the
+real fixes; the gates above are the interim. `GE SEO Pull` still shells out to a CLI script writing
+to Railway's ephemeral filesystem (Phase 5). `site_id` is written but nothing reads it yet — reads
+migrate service-by-service before it can go NOT NULL.
+
+## 2026-08-05 — SEO Phase 1: tenant leaks closed, add-on feature-gated, SiteAdapter + cost-guard groundwork — Claude
+
+Branch `fix/wizmatch-scoring-pipeline`, rebased onto `origin/main` (36 commits). Not committed to
+`main`, not pushed. First execution phase of the multi-tenant/multi-platform SEO plan
+(`~/.claude/plans/can-you-check-the-atomic-cascade.md`). Built with five parallel lanes under
+exclusive file ownership; build/test run centrally only.
+
+**Tenant-isolation fixes (the real ones):**
+- `src/routes/seo.ts` — `PATCH /content-calendar/:id` propagated a write to
+  `seo_opportunities.published_url` scoped **by id alone**, so it could overwrite another tenant's
+  row. Now scoped by `tenant_id`. All six `/content-calendar` endpoints (GET list, GET summary,
+  PATCH, POST, DELETE) were entirely unscoped and now filter/stamp `tenant_id`; DELETE also gained
+  a `404` on zero rows affected so a tenant mismatch can't report success.
+- `src/services/seoDigestService.ts` — `computeOpportunityTypeSuccessRates()` aggregated
+  `seo_opportunities` across **all** tenants, so one tenant's outcomes biased another's
+  prioritisation. Now tenant-scoped, with opt-out-able cross-tenant "platform priors" blended in
+  only below the 10-sample threshold (deliberate product decision: shared-by-default, per-tenant
+  opt-out via `settings.seo.contributePriors`; **requires disclosure in the reseller contract**).
+
+**SEO becomes a sellable per-tenant add-on:**
+- `src/index.ts` — `/api/seo` and `/api/seo-workflows` now mount `requireTenantFeature('seo')`.
+- `admin/src/components/navEntries.js` — `canSEO` also requires `tenantFeatures.seo !== false`
+  (the `!== false` convention is deliberate: flags load async, an unresolved fetch must not hide nav).
+- **Behaviour change, not additive:** `reseller_pilot`/`client_basic`/`wizmatch_internal` default to
+  `seo: false`, so such a tenant hitting `/api/seo` now gets 403.
+
+**Migration `0045_typical_toro.sql`** (hand-edited after `db:generate` — drizzle's output was unsafe):
+- drizzle emitted `SET NOT NULL` + FK on `seo_content_calendar.tenant_id` with **no backfill**. That
+  column defaulted to sentinel `00000000-…0001`, which is **not a row in `tenants`** (verified), so
+  every pre-existing row pointed at a nonexistent tenant and the migration would have aborted —
+  and Railway migrates on boot, so the API would not have started (the 0035 failure mode). Added a
+  guarded backfill to the growth-escalators tenant plus a `RAISE EXCEPTION` if anything is still
+  unattributable, then DROP DEFAULT → SET NOT NULL → FK.
+- Added the 4-column tenant-scoped unique index **alongside** the old 3-column one. The old one is
+  deliberately NOT dropped: running code still does `ON CONFLICT (client_domain, keyword,
+  content_type)`, and dropping it here would 500 every in-flight POST. Drop it in a later migration
+  after the conflict target moves.
+- `client_pages` — added `approved_by` / `approved_at` / `rejected_reason` (reusing the existing
+  never-written `published_date`/`last_updated` rather than adding near-duplicate columns).
+  **UNIQUE (tenant_id, client_domain, page_slug) deliberately NOT added** — duplicates provably exist
+  (that is why `publishPendingToWordPress()` dedupes in JS), so it would abort the migration; the
+  required DELETE-dedupe is irreversible loss against a DB with no backups. Deferred + documented.
+- `seo_workflow_logs` — nullable `tenant_id` + index (raw-only table, hand-written, existence-guarded).
+- **Dropped the four `seo_looker_*` views** and removed their DDL from `ensureSeoTables()`
+  (`src/services/seoWorkflowHealthService.ts`) so boot can't recreate them. They selected/filtered no
+  `tenant_id` and were rebuildable via the **unauthenticated** `GET /api/system/health/seo-data`.
+  Owner confirmed no Looker Studio consumer.
+
+**Groundwork landed early (Phases 3 & 4):**
+- `src/modules/site/providers/` (new) — `SiteAdapter` seam: interface + capability matrix for
+  git/WordPress/Shopify + mock + fail-closed allow-list factory, copying the
+  `src/modules/outreach/providers/` convention (ADR-007 forbids a generic cross-domain framework).
+  Callers branch on capabilities, never `identity.name`. `unauthorised_publish` backs the
+  hard-stop-before-publish rule. Behind `SITE_ADAPTER_ENABLED` (default false) + `SITE_PROVIDER`.
+- `src/services/seoCostGuard.ts` (new) — per-tenant/per-site replacement for the in-memory **global**
+  `SEO_SERPER_DAILY_CAP`. Pure `getSeoCostGuardConfig(env)` + pure DB-free
+  `evaluateSeoCostGuard(input)`, mirroring `wizmatchCostGuard`'s impure-fetch/pure-evaluate split.
+  Plan `limits` jsonb can override caps, making the per-site add-on enforceable with no billing code.
+  **Intentionally incomplete:** no DB fetch function yet — its `seo_api_usage` table is a later migration.
+
+**Two pre-existing migration guardrails were tripped and satisfied properly, not bypassed:**
+`wizmatchScopeBoundaryPR8B.test.ts`'s reviewed allowlist and
+`wizmatchPilotReadiness.ts`'s `AUTHORISED_MIGRATION_HIGH_WATER_MARK` (44→45), both with written
+justifications. The readiness test's sentinel probe was moved 0045→0046 — leaving it at 0045 would
+have made that test silently vacuous rather than failing.
+
+**Verify:** `npm run build` exit 0. `npm test` — **7 failed files / 21 failures, byte-identical to a
+clean `origin/main` baseline** (verified by testing `origin/main` in a detached HEAD, and confirmed
+CI green on the same SHA `e2c7fa20`, so they are local-env-dependent, not regressions); **55 new
+tests passing** (2688 vs 2633). `npm run lint:tenant-scoping` — zero new findings, and baselined
+findings dropped 80→79.
+
+**Next:** Phase 2 (`seo_sites` registry, `site_id` backfill, killing the 9 hardcoded client-domain
+lists, and converting SEO crons to `getActiveTenantsWithFeature('seo')` loops). That last item is a
+**production blocker and must land before any second tenant gets `seo:true`** —
+`resolveDefaultSeoTenantId()` throws when 2+ active tenants have the feature, which would break every
+SEO cron including GE's own.
+
+---
+
 ## 2026-08-03 — Platform-superadmin primitive: schema + middleware + audit-logging (scaffolding only) — Claude
 
 **PR #112** (`feat/platform-superadmin-role`), open, not merged. Security-audit finding: no

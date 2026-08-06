@@ -25,6 +25,44 @@ vi.mock('../services/seoTenantContext', () => ({
   resolveDefaultSeoTenantId: vi.fn().mockResolvedValue('tenant-seo-default'),
 }));
 
+// H18 Phase 2 — runRankChecks() now sources its domains from the per-tenant
+// seo_sites registry (listSeoSiteDomains) instead of a hardcoded three-domain
+// array. No default resolved value is baked in here: every test below that
+// reaches this call configures it explicitly via vi.mocked(...).mockResolvedValue(...)
+// on the imported reference, the same way this file already configures
+// pool.query per test — baking different values into competing vi.mock()
+// factories for the same path is a trap, since vi.mock calls are hoisted to
+// the top of the file in SOURCE order and the last one registered wins for
+// every subsequent import, not just the test it's textually inside.
+vi.mock('../services/seoSiteRegistry', () => ({
+  listSeoSiteDomains: vi.fn(),
+  // Must RESOLVE, not merely exist. createSeoSiteIdResolver() calls
+  // `getSeoSiteByDomain(...).catch(...)`, so both an absent mock and one
+  // returning bare `undefined` throw a synchronous TypeError — which
+  // runRankChecks' per-keyword try/catch then swallows, quietly converting a
+  // `checked` into an `errors`. The failure surfaced as a shape assertion
+  // ("expected 0 to be >= 1") rather than as an error, which is what made it
+  // worth a comment.
+  getSeoSiteByDomain: vi.fn().mockResolvedValue(null),
+}));
+
+// Every Serper call now goes through the per-tenant cost guard. Unmocked, its
+// usage read would consume from the same mocked pool.query stream these tests
+// queue exact responses into. Stubbed to "no usage, always allow" — spend caps
+// are seoSerperGuard.test.ts's subject, not this file's.
+vi.mock('../services/seoCostGuardUsage', () => ({
+  fetchSeoCostGuardUsage: vi.fn().mockResolvedValue({
+    monthCostCents: 0,
+    dayCostCents: 0,
+    tenantDaySerperCalls: 0,
+    siteDaySerperCalls: 0,
+    tenantDayPagespeedCalls: 0,
+    tenantDayGscCalls: 0,
+    siteDayPublishes: 0,
+  }),
+  recordSeoApiUsage: vi.fn().mockResolvedValue(undefined),
+}));
+
 // ---------------------------------------------------------------------------
 // Tests for rankTrackingService.runRankChecks()
 // ---------------------------------------------------------------------------
@@ -56,23 +94,22 @@ describe('rankTrackingService', () => {
     // const SERPER_API_KEY = process.env.SERPER_API_KEY with our deleted value.
     vi.resetModules();
 
-    // Re-apply mocks after resetModules
-    vi.mock('../db/index', () => ({
-      pool: { query: vi.fn() },
-    }));
-    vi.mock('../services/slackService', () => ({
-      sendSlackMessage: vi.fn().mockResolvedValue(undefined),
-    }));
-    vi.mock('../config/constants', () => ({
-      SLACK_SEO_CHANNEL: 'C_SEO_TEST',
-    }));
-    vi.mock('../services/seoTenantContext', () => ({
-      resolveDefaultSeoTenantId: vi.fn().mockResolvedValue('tenant-seo-default'),
-    }));
+    // NOTE: the vi.mock() calls that used to sit here ("re-apply mocks after
+    // resetModules") were removed. vi.mock is HOISTED — a call inside an it()
+    // block runs before any test, and the last registration in source order
+    // wins for every import in the file, not just the test it appears in. So
+    // these did not "re-apply" anything; they silently replaced the top-level
+    // factories for the whole file, which is how getSeoSiteByDomain went
+    // missing from the registry mock and turned a checked into an errors.
+    // vi.resetModules() clears the module cache, not the mock registry — the
+    // top-level factories still apply after it.
 
     const { runRankChecks } = await import('../services/rankTrackingService');
     const { sendSlackMessage } = await import('../services/slackService');
 
+    // The missing-key guard fires before the registry is ever consulted, so
+    // this throws regardless of what listSeoSiteDomains returns — no need to
+    // configure it for this test.
     await expect(runRankChecks()).rejects.toThrow(/SERPER_API_KEY/);
     expect(sendSlackMessage).toHaveBeenCalledOnce();
     expect(vi.mocked(sendSlackMessage).mock.calls[0][1]).toMatch(/SERPER_API_KEY/);
@@ -87,18 +124,10 @@ describe('rankTrackingService', () => {
     process.env.SERPER_API_KEY = 'test-serper-key';
     vi.resetModules();
 
-    vi.mock('../db/index', () => ({
-      pool: { query: vi.fn() },
-    }));
-    vi.mock('../services/slackService', () => ({
-      sendSlackMessage: vi.fn().mockResolvedValue(undefined),
-    }));
-    vi.mock('../config/constants', () => ({
-      SLACK_SEO_CHANNEL: 'C_SEO_TEST',
-    }));
-    vi.mock('../services/seoTenantContext', () => ({
-      resolveDefaultSeoTenantId: vi.fn().mockResolvedValue('tenant-seo-default'),
-    }));
+    // (Nested vi.mock() calls removed — see the NOTE in the first test.
+    // They hoist to the top of the file and the last registration in source
+    // order wins for EVERY import, so a nested factory silently overrides the
+    // top-level one for the whole suite rather than scoping to its own test.)
 
     // Mock global fetch
     const mockFetch = vi.fn().mockResolvedValue({
@@ -113,7 +142,13 @@ describe('rankTrackingService', () => {
     vi.stubGlobal('fetch', mockFetch);
 
     const { pool } = await import('../db/index');
+    const { listSeoSiteDomains } = await import('../services/seoSiteRegistry');
     const { runRankChecks } = await import('../services/rankTrackingService');
+
+    // The tenant has one registered site (aarohaom.com) — matching the
+    // fixture domain used in the fetch/pool.query mocks below — so
+    // getKeywordsToTrack has something to find and the INSERT actually runs.
+    vi.mocked(listSeoSiteDomains).mockResolvedValue(['aarohaom.com']);
 
     // pool.query called at least for: getKeywordsToTrack, getPreviousPosition, INSERT
     // getKeywordsToTrack — returns existing keywords from DB
@@ -138,6 +173,44 @@ describe('rankTrackingService', () => {
     expect(typeof result.errors).toBe('number');
     expect(result.checked).toBeGreaterThanOrEqual(1);
     expect(result.errors).toBe(0);
+
+    vi.unstubAllGlobals();
+  });
+
+  // -------------------------------------------------------------------------
+  // 3. Zero registered SEO sites — "a tenant with no sites costs nothing".
+  //    H18 Phase 2 removed the hardcoded three-domain fallback specifically
+  //    because it let a brand-new tenant with an empty registry silently spend
+  //    against a retired client's keyword set. The correct behaviour for that
+  //    tenant is zero paid Serper calls and zero writes — not "fall back to
+  //    someone else's domains". Pin that here, not just the happy path.
+  // -------------------------------------------------------------------------
+  it('makes no paid Serper call and no INSERT when the tenant has zero registered SEO sites', async () => {
+    process.env.SERPER_API_KEY = 'test-serper-key';
+    vi.resetModules();
+
+    // (Nested vi.mock() calls removed — see the NOTE in the first test.
+    // They hoist to the top of the file and the last registration in source
+    // order wins for EVERY import, so a nested factory silently overrides the
+    // top-level one for the whole suite rather than scoping to its own test.)
+
+    const mockFetch = vi.fn();
+    vi.stubGlobal('fetch', mockFetch);
+
+    const { pool } = await import('../db/index');
+    const { listSeoSiteDomains } = await import('../services/seoSiteRegistry');
+    const { runRankChecks } = await import('../services/rankTrackingService');
+
+    vi.mocked(listSeoSiteDomains).mockResolvedValue([]);
+
+    const result = await runRankChecks();
+
+    expect(result).toEqual({ checked: 0, errors: 0 });
+    // Zero paid Serper calls — the whole point of the guard.
+    expect(mockFetch).not.toHaveBeenCalled();
+    // Zero writes — no INSERT INTO keyword_rankings, no queries at all in
+    // fact, since the guard returns before getKeywordsToTrack ever runs.
+    expect(pool.query).not.toHaveBeenCalled();
 
     vi.unstubAllGlobals();
   });

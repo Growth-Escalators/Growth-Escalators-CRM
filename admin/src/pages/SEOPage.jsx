@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import Sidebar from '../components/Sidebar.jsx';
+import SiteRegistryPanel from '../components/seo/SiteRegistryPanel.jsx';
 import { apiFetch } from '../lib/api.js';
 import { safeLower } from '../lib/safe.js';
 import {
@@ -12,14 +13,15 @@ import {
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
-const CLIENTS = [
-  { domain: 'aarohaom.com',               label: 'Aarohaom' },
-  { domain: 'blackpandaenterprises.com',   label: 'Black Panda' },
-  { domain: 'ageddentistry.org',           label: 'Aged Dentistry' },
-];
+// The old hardcoded CLIENTS list (Aarohaom / Black Panda / Aged Dentistry —
+// three retired clients scheduled for data deletion) has been replaced
+// end-to-end with the tenant's own registered sites, fetched once from
+// GET /api/seo-sites at the top of SEOPage and threaded down as a `sites`
+// prop to every tab that used to read CLIENTS directly.
 
 const DASHBOARD_TABS = [
   { id: 'overview',      label: 'Overview',      icon: BarChart2 },
+  { id: 'sites',         label: 'Sites',         icon: Globe },
   { id: 'keywords',      label: 'Keywords',      icon: Search },
   { id: 'content-gaps',  label: 'Content Gaps',  icon: Layers },
   { id: 'backlinks',     label: 'Backlinks',     icon: Link2 },
@@ -219,7 +221,7 @@ function OverviewTab() {
 // ---------------------------------------------------------------------------
 // Keywords Tab — cross-client keyword table with filter + sort
 // ---------------------------------------------------------------------------
-function KeywordsTab({ keywords, loading }) {
+function KeywordsTab({ keywords, loading, sites }) {
   const [search, setSearch] = useState('');
   const [clientFilter, setClientFilter] = useState('all');
 
@@ -274,7 +276,7 @@ function KeywordsTab({ keywords, loading }) {
           >
             <option value="all">All Clients</option>
             {domains.map(d => {
-              const known = CLIENTS.find(c => c.domain === d);
+              const known = sites.find(c => c.domain === d);
               return <option key={d} value={d}>{known?.label ?? d}</option>;
             })}
           </select>
@@ -300,7 +302,7 @@ function KeywordsTab({ keywords, loading }) {
             <tbody className="divide-y divide-slate-100">
               {filtered.map((kw, i) => {
                 const change = Number(kw.change ?? 0);
-                const knownClient = CLIENTS.find(c => c.domain === kw.client_domain);
+                const knownClient = sites.find(c => c.domain === kw.client_domain);
                 return (
                   <tr key={i} className="hover:bg-slate-50">
                     <td className="px-4 py-2.5 font-medium text-slate-800">{kw.keyword}</td>
@@ -347,7 +349,7 @@ function KeywordsTab({ keywords, loading }) {
 // ---------------------------------------------------------------------------
 // Alerts Tab — recent alerts with color-coded badges
 // ---------------------------------------------------------------------------
-function AlertsTab({ alerts, loading }) {
+function AlertsTab({ alerts, loading, sites }) {
   if (loading) {
     return (
       <div className="space-y-3">
@@ -370,7 +372,7 @@ function AlertsTab({ alerts, loading }) {
   return (
     <div className="space-y-2">
       {alerts.map((a, i) => {
-        const knownClient = CLIENTS.find(c => c.domain === a.client_domain);
+        const knownClient = sites.find(c => c.domain === a.client_domain);
         return (
           <div key={i} className="bg-white rounded-xl border border-slate-200 p-4 flex items-start gap-3">
             <span className={`mt-0.5 px-2 py-0.5 rounded-full text-xs font-semibold flex-shrink-0 ${alertBadge(a.alert_type)}`}>
@@ -398,7 +400,7 @@ function AlertsTab({ alerts, loading }) {
 // ---------------------------------------------------------------------------
 // Content Gaps Tab — keyword gaps across all clients
 // ---------------------------------------------------------------------------
-function ContentGapsTab() {
+function ContentGapsTab({ sites }) {
   const [gaps, setGaps] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('');
@@ -455,7 +457,7 @@ function ContentGapsTab() {
               const priority = parseFloat(g.priority_score ?? '0');
               const priorityColor = priority >= 7 ? 'text-red-600 bg-red-50' : priority >= 4 ? 'text-amber-600 bg-amber-50' : 'text-slate-500 bg-slate-50';
               const statusColor = g.status === 'pending' ? 'bg-yellow-100 text-yellow-700' : g.status === 'addressed' ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-600';
-              const client = CLIENTS.find(c => c.domain === g.project_name) || CLIENTS.find(c => g.project_name?.includes(c.domain?.split('.')[0]));
+              const client = sites.find(c => c.domain === g.project_name) || sites.find(c => g.project_name?.includes(c.domain?.split('.')[0]));
               return (
                 <tr key={g.id ?? i} className="hover:bg-slate-50">
                   <td className="px-4 py-2.5 font-medium text-slate-700">{g.target_keyword}</td>
@@ -489,7 +491,7 @@ function ContentGapsTab() {
 // ---------------------------------------------------------------------------
 // Backlinks Tab — backlink profile across all clients
 // ---------------------------------------------------------------------------
-function BacklinksTab() {
+function BacklinksTab({ sites }) {
   const [backlinks, setBacklinks] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('');
@@ -545,7 +547,7 @@ function BacklinksTab() {
             {filtered.map((b, i) => {
               const da = parseFloat(b.domain_authority ?? '0');
               const daColor = da >= 50 ? 'text-green-600 bg-green-50' : da >= 20 ? 'text-amber-600 bg-amber-50' : 'text-slate-500 bg-slate-50';
-              const client = CLIENTS.find(c => c.domain === b.project_name) || CLIENTS.find(c => b.project_name?.includes(c.domain?.split('.')[0]));
+              const client = sites.find(c => c.domain === b.project_name) || sites.find(c => b.project_name?.includes(c.domain?.split('.')[0]));
               const typeColor = b.link_type === 'dofollow' ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-600';
               return (
                 <tr key={b.id ?? i} className="hover:bg-slate-50">
@@ -576,7 +578,7 @@ function BacklinksTab() {
 // ---------------------------------------------------------------------------
 // Client Detail Panel — slide-in from right when clicking an Overview card
 // ---------------------------------------------------------------------------
-function ClientDetailPanel({ domain, onClose }) {
+function ClientDetailPanel({ domain, onClose, sites }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
 
@@ -591,7 +593,7 @@ function ClientDetailPanel({ domain, onClose }) {
 
   if (!domain) return null;
 
-  const client = CLIENTS.find(c => c.domain === domain);
+  const client = sites.find(c => c.domain === domain);
   const displayName = client?.label ?? domain;
 
   return (
@@ -939,7 +941,7 @@ function WorkflowsTab() {
       <div className="bg-white rounded-xl border border-slate-200 p-4">
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-sm font-bold text-slate-700 flex items-center gap-2">
-            <Zap className="w-4 h-4 text-amber-500" /> n8n SEO Workflows
+            <Zap className="w-4 h-4 text-amber-500" /> SEO Workflows
           </h3>
           <button onClick={load} className="text-xs text-sky-600 hover:underline flex items-center gap-1">
             <RefreshCw className="w-3 h-3" /> Refresh
@@ -1246,9 +1248,16 @@ function DigestCard() {
 // ---------------------------------------------------------------------------
 // Content Engine Tab — generate content, analyze visibility, view briefs
 // ---------------------------------------------------------------------------
-function ContentEngineTab() {
+function ContentEngineTab({ sites, loadingSites, sitesError }) {
   // --- Section A: Generate Content ---
-  const [genClient, setGenClient] = useState(CLIENTS[0].domain);
+  // No CLIENTS[0] to seed from any more — this is a real client picker (it
+  // decides which site's content gets generated), so it must not render
+  // populated with stale/empty data while sites are loading. Seeded once
+  // sites actually arrive.
+  const [genClient, setGenClient] = useState('');
+  useEffect(() => {
+    if (!genClient && sites && sites.length > 0) setGenClient(sites[0].domain);
+  }, [sites, genClient]);
   const [genKeyword, setGenKeyword] = useState('');
   const [genAiOptimized, setGenAiOptimized] = useState(true);
   const [generating, setGenerating] = useState(false);
@@ -1275,7 +1284,7 @@ function ContentEngineTab() {
   }, []);
 
   async function handleGenerate() {
-    if (!genKeyword.trim()) return;
+    if (!genKeyword.trim() || !genClient) return;
     setGenerating(true);
     setGenResult(null);
     setGenError(null);
@@ -1334,19 +1343,31 @@ function ContentEngineTab() {
         <div className="flex flex-wrap items-end gap-3">
           <div>
             <label className="block text-xs text-slate-500 mb-1">Client</label>
-            <div className="relative">
-              <select
-                value={genClient}
-                onChange={e => setGenClient(e.target.value)}
-                className="appearance-none pl-3 pr-8 py-2 text-sm border border-slate-200 rounded-lg bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-sky-500"
-                aria-label="Client"
-              >
-                {CLIENTS.map(c => (
-                  <option key={c.domain} value={c.domain}>{c.label}</option>
-                ))}
-              </select>
-              <ChevronDown className="absolute right-2.5 top-2.5 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
-            </div>
+            {/* Honest loading/empty/error states — this selector decides which
+                site content gets generated for, so it must never render
+                populated with stale/empty data, and it never falls back to
+                any hardcoded client list. */}
+            {loadingSites ? (
+              <div className="px-3 py-2 text-sm text-slate-400 border border-slate-200 rounded-lg bg-slate-50 min-w-[180px]">Loading sites...</div>
+            ) : sitesError ? (
+              <div className="px-3 py-2 text-sm text-red-600 border border-red-200 rounded-lg bg-red-50 min-w-[180px]">Failed to load sites</div>
+            ) : !sites || sites.length === 0 ? (
+              <div className="px-3 py-2 text-sm text-slate-500 border border-slate-200 rounded-lg bg-slate-50 min-w-[180px]">No sites registered</div>
+            ) : (
+              <div className="relative">
+                <select
+                  value={genClient}
+                  onChange={e => setGenClient(e.target.value)}
+                  className="appearance-none pl-3 pr-8 py-2 text-sm border border-slate-200 rounded-lg bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-sky-500"
+                  aria-label="Client"
+                >
+                  {sites.map(c => (
+                    <option key={c.domain} value={c.domain}>{c.label || c.domain}</option>
+                  ))}
+                </select>
+                <ChevronDown className="absolute right-2.5 top-2.5 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
+              </div>
+            )}
           </div>
           <div className="flex-1 min-w-[200px]">
             <label className="block text-xs text-slate-500 mb-1">Keyword</label>
@@ -1370,7 +1391,7 @@ function ContentEngineTab() {
           </label>
           <button
             onClick={handleGenerate}
-            disabled={generating || !genKeyword.trim()}
+            disabled={generating || !genKeyword.trim() || !genClient}
             className="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold bg-sky-600 text-white rounded-lg hover:bg-sky-700 disabled:opacity-50 transition-colors"
           >
             {generating && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
@@ -1555,7 +1576,7 @@ function ContentEngineTab() {
                     <tbody className="divide-y divide-slate-100">
                       {briefs.pages.map((p, i) => {
                         const statusColor = p.status === 'draft_wp' ? 'bg-blue-100 text-blue-700' : 'bg-amber-100 text-amber-700';
-                        const client = CLIENTS.find(c => c.domain === p.client_domain);
+                        const client = sites.find(c => c.domain === p.client_domain);
                         return (
                           <tr key={p.id ?? i} className="hover:bg-slate-50">
                             <td className="px-4 py-2.5 font-medium text-slate-700 truncate max-w-[250px]">{p.page_title}</td>
@@ -1653,14 +1674,37 @@ export default function SEOPage() {
   const [overview, setOverview] = useState([]);
   const [keywords, setKeywords] = useState([]);
   const [alerts, setAlerts] = useState([]);
+  // Sites replace the old hardcoded CLIENTS list. Unlike the other three
+  // fetches below (which swallow failures into an empty array — pre-existing
+  // behaviour for this file's tabs, where the failure mode is just a less
+  // pretty label), this one tracks a real error: it feeds the Content Engine
+  // tab's client picker, and that selector must never silently pretend
+  // everything is fine when it isn't.
+  const [sites, setSites] = useState([]);
+  const [sitesError, setSitesError] = useState(null);
 
   // Loading state
   const [loadingOverview, setLoadingOverview] = useState(true);
   const [loadingKeywords, setLoadingKeywords] = useState(true);
   const [loadingAlerts, setLoadingAlerts] = useState(true);
+  const [loadingSites, setLoadingSites] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
   // Fetch functions
+  const fetchSites = useCallback(() => {
+    setLoadingSites(true);
+    return apiFetch('/api/seo-sites')
+      .then(d => {
+        setSites(Array.isArray(d?.sites) ? d.sites : Array.isArray(d) ? d : []);
+        setSitesError(null);
+      })
+      .catch(e => {
+        setSites([]);
+        setSitesError(e.message || 'Failed to load sites');
+      })
+      .finally(() => setLoadingSites(false));
+  }, []);
+
   const fetchOverview = useCallback(() => {
     setLoadingOverview(true);
     return apiFetch('/api/seo/overview')
@@ -1687,14 +1731,14 @@ export default function SEOPage() {
 
   // Initial load
   useEffect(() => {
-    Promise.all([fetchOverview(), fetchKeywords(), fetchAlerts()])
+    Promise.all([fetchOverview(), fetchKeywords(), fetchAlerts(), fetchSites()])
       .then(() => setLastUpdated(new Date()));
-  }, [fetchOverview, fetchKeywords, fetchAlerts]);
+  }, [fetchOverview, fetchKeywords, fetchAlerts, fetchSites]);
 
   // Refresh all
   async function handleRefresh() {
     setRefreshing(true);
-    await Promise.all([fetchOverview(), fetchKeywords(), fetchAlerts()]);
+    await Promise.all([fetchOverview(), fetchKeywords(), fetchAlerts(), fetchSites()]);
     setLastUpdated(new Date());
     setRefreshing(false);
   }
@@ -1740,6 +1784,7 @@ export default function SEOPage() {
               const Icon = t.icon;
               const count = t.id === 'keywords' ? keywords.length
                           : t.id === 'alerts' ? alerts.length
+                          : t.id === 'sites' ? sites.length
                           : overview.length;
               return (
                 <button key={t.id} onClick={() => setActiveTab(t.id)}
@@ -1766,29 +1811,32 @@ export default function SEOPage() {
           {activeTab === 'overview' && (
             <OverviewTab />
           )}
+          {activeTab === 'sites' && (
+            <SiteRegistryPanel onSitesChanged={fetchSites} />
+          )}
           {activeTab === 'keywords' && (
-            <KeywordsTab keywords={keywords} loading={loadingKeywords} />
+            <KeywordsTab keywords={keywords} loading={loadingKeywords} sites={sites} />
           )}
           {activeTab === 'content-gaps' && (
-            <ContentGapsTab />
+            <ContentGapsTab sites={sites} />
           )}
           {activeTab === 'backlinks' && (
-            <BacklinksTab />
+            <BacklinksTab sites={sites} />
           )}
           {activeTab === 'alerts' && (
-            <AlertsTab alerts={alerts} loading={loadingAlerts} />
+            <AlertsTab alerts={alerts} loading={loadingAlerts} sites={sites} />
           )}
           {activeTab === 'workflows' && (
             <WorkflowsTab />
           )}
           {activeTab === 'content' && (
-            <ContentEngineTab />
+            <ContentEngineTab sites={sites} loadingSites={loadingSites} sitesError={sitesError} />
           )}
         </div>
 
         {/* Client Detail Slide-In Panel */}
         {selectedClient && (
-          <ClientDetailPanel domain={selectedClient} onClose={() => setSelectedClient(null)} />
+          <ClientDetailPanel domain={selectedClient} onClose={() => setSelectedClient(null)} sites={sites} />
         )}
       </main>
     </div>

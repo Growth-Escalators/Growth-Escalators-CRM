@@ -9,9 +9,9 @@ import { resolveDefaultSeoTenantId } from './seoTenantContext';
  * Finds keywords that have dropped significantly and creates SEO opportunities.
  */
 
-export async function runContentDecayDetection(): Promise<{ opportunities: number }> {
+export async function runContentDecayDetection(tenantId?: string): Promise<{ opportunities: number }> {
   let opportunities = 0;
-  const tenantId = await resolveDefaultSeoTenantId();
+  const tid = tenantId ?? await resolveDefaultSeoTenantId();
 
   try {
     // Pre-flight: if upstream rank tracker is silently broken (missing SERPER_API_KEY,
@@ -20,7 +20,7 @@ export async function runContentDecayDetection(): Promise<{ opportunities: numbe
     const recentRowsQ = await pool.query(
       `SELECT COUNT(*)::int AS cnt FROM keyword_rankings
        WHERE recorded_date >= CURRENT_DATE - INTERVAL '10 days' AND tenant_id = $1`,
-      [tenantId],
+      [tid],
     );
     const recentRows = Number((recentRowsQ.rows[0] as { cnt: number }).cnt);
     if (recentRows === 0) {
@@ -69,7 +69,7 @@ export async function runContentDecayDetection(): Promise<{ opportunities: numbe
       WHERE r.current_position > o.old_position + 5
       ORDER BY (r.current_position - o.old_position) DESC
       LIMIT 20
-    `, [tenantId]);
+    `, [tid]);
 
     for (const row of decayed.rows as Array<Record<string, unknown>>) {
       const domain = String(row.client_domain);
@@ -87,7 +87,7 @@ export async function runContentDecayDetection(): Promise<{ opportunities: numbe
            AND created_at > NOW() - INTERVAL '14 days'
            AND tenant_id = $3
          LIMIT 1`,
-        [domain, keyword, tenantId],
+        [domain, keyword, tid],
       );
       if ((existing.rows as unknown[]).length > 0) continue;
 
@@ -113,7 +113,7 @@ export async function runContentDecayDetection(): Promise<{ opportunities: numbe
           effort,
           keyword,
           priorityScore,
-          tenantId,
+          tid,
         ],
       );
       opportunities++;
@@ -121,12 +121,20 @@ export async function runContentDecayDetection(): Promise<{ opportunities: numbe
 
       // Link a content-calendar row to this opportunity so it's measurable the same
       // way content-gap opportunities are (mirrors seoContentGapService.ts's shape).
+      //
+      // tenant_id is bound explicitly and the conflict target is the 4-column
+      // tenant-scoped index (migration 0045's seo_content_calendar_tenant_unique_idx).
+      // The old INSERT relied on the column's single-tenant DEFAULT and the
+      // 3-column index — that's how two tenants both targeting the same
+      // domain/keyword/type would collide and one tenant's row would silently
+      // vanish under ON CONFLICT DO NOTHING. The 3-column index is kept
+      // (deliberately, per schema.ts) for other readers, but no longer used here.
       try {
         await pool.query(`
-          INSERT INTO seo_content_calendar (client_domain, keyword, content_type, title, status, priority, source, opportunity_id)
-          VALUES ($1, $2, 'refresh', $3, 'planned', $4, 'content_decay', $5)
-          ON CONFLICT (client_domain, keyword, content_type) DO NOTHING
-        `, [domain, keyword, `Refresh: "${keyword}"`, impact, decayOppId]);
+          INSERT INTO seo_content_calendar (client_domain, keyword, content_type, title, status, priority, source, opportunity_id, tenant_id)
+          VALUES ($1, $2, 'refresh', $3, 'planned', $4, 'content_decay', $5, $6)
+          ON CONFLICT (tenant_id, client_domain, keyword, content_type) DO NOTHING
+        `, [domain, keyword, `Refresh: "${keyword}"`, impact, decayOppId, tid]);
       } catch (calErr) {
         logger.warn(`[content-decay] calendar insert skipped: ${calErr instanceof Error ? calErr.message : String(calErr)}`);
       }
@@ -153,7 +161,7 @@ export async function runContentDecayDetection(): Promise<{ opportunities: numbe
             AND kr.tenant_id = $1
         )
       LIMIT 10
-    `, [tenantId]);
+    `, [tid]);
 
     for (const row of lostRankings.rows as Array<Record<string, unknown>>) {
       const domain = String(row.client_domain);
@@ -167,7 +175,7 @@ export async function runContentDecayDetection(): Promise<{ opportunities: numbe
            AND created_at > NOW() - INTERVAL '30 days'
            AND tenant_id = $3
          LIMIT 1`,
-        [domain, keyword, tenantId],
+        [domain, keyword, tid],
       );
       if ((existing.rows as unknown[]).length > 0) continue;
 
@@ -182,19 +190,21 @@ export async function runContentDecayDetection(): Promise<{ opportunities: numbe
           (project_name, client_domain, opportunity_type, description, estimated_impact, effort_level, status, keyword, priority_score, tenant_id)
          VALUES ($1, $1, 'lost_ranking', $2, 'high', 'medium', 'open', $3, $4, $5)
          RETURNING id`,
-        [domain, `"${keyword}" lost ranking entirely (was #${row.current_position}, last seen ${new Date(row.recorded_date as string).toLocaleDateString('en-IN')}). Needs content refresh or new backlinks.`, keyword, priorityScore, tenantId],
+        [domain, `"${keyword}" lost ranking entirely (was #${row.current_position}, last seen ${new Date(row.recorded_date as string).toLocaleDateString('en-IN')}). Needs content refresh or new backlinks.`, keyword, priorityScore, tid],
       );
       opportunities++;
       const lostOppId = (lostInsertResult.rows[0] as { id: string }).id;
 
       // Link a content-calendar row to this opportunity so it's measurable the same
       // way content-gap opportunities are (mirrors seoContentGapService.ts's shape).
+      // See the content_decay insert above for why tenant_id is bound explicitly
+      // and the conflict target is the 4-column tenant-scoped index.
       try {
         await pool.query(`
-          INSERT INTO seo_content_calendar (client_domain, keyword, content_type, title, status, priority, source, opportunity_id)
-          VALUES ($1, $2, 'refresh', $3, 'planned', 'high', 'lost_ranking', $4)
-          ON CONFLICT (client_domain, keyword, content_type) DO NOTHING
-        `, [domain, keyword, `Recover: "${keyword}"`, lostOppId]);
+          INSERT INTO seo_content_calendar (client_domain, keyword, content_type, title, status, priority, source, opportunity_id, tenant_id)
+          VALUES ($1, $2, 'refresh', $3, 'planned', 'high', 'lost_ranking', $4, $5)
+          ON CONFLICT (tenant_id, client_domain, keyword, content_type) DO NOTHING
+        `, [domain, keyword, `Recover: "${keyword}"`, lostOppId, tid]);
       } catch (calErr) {
         logger.warn(`[content-decay] calendar insert skipped (lost_ranking): ${calErr instanceof Error ? calErr.message : String(calErr)}`);
       }

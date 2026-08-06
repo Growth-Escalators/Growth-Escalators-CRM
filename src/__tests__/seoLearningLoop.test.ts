@@ -54,8 +54,12 @@ async function invokeRoute(router: any, path: string, method: string, req: any, 
   }
 }
 
+// The seo.ts routes now read `req.user!.tenantId` directly (tenant-isolation work —
+// see routes/seo.ts content-calendar handlers), the same pattern every other routes
+// test in this repo mocks (e.g. billingRoutes.test.ts's makeReqRes). `tenantId` here
+// matches the resolveDefaultSeoTenantId() mock above so IDs line up across the file.
 function makeReqRes(params: Record<string, string>, body: Record<string, unknown>) {
-  const req = { params, body, query: {} } as any;
+  const req = { user: { id: 'user-1', tenantId: 'tenant-seo-default', email: 'user@test.com' }, params, body, query: {} } as any;
   const jsonFn = vi.fn();
   const statusFn = vi.fn().mockReturnValue({ json: jsonFn });
   const res = { json: jsonFn, status: statusFn } as any;
@@ -172,7 +176,8 @@ describe('seo-learning-loop', () => {
       const calls = vi.mocked(pool.query).mock.calls;
       expect(calls[0][0]).toMatch(/UPDATE seo_content_calendar/);
       expect(calls[1][0]).toMatch(/UPDATE seo_opportunities SET published_url/);
-      expect(calls[1][1]).toEqual(['https://x.com/a', 'opp-1']);
+      // Third bound param is tenant_id (tenant-isolation work in routes/seo.ts).
+      expect(calls[1][1]).toEqual(['https://x.com/a', 'opp-1', 'tenant-seo-default']);
       expect(jsonFn).toHaveBeenCalledWith({ id: 42, opportunity_id: 'opp-1', published_url: 'https://x.com/a' });
     });
 
@@ -231,13 +236,22 @@ describe('seo-learning-loop', () => {
 
       const patchCalls = vi.mocked(pool.query).mock.calls;
       expect(patchCalls[1][0]).toMatch(/UPDATE seo_opportunities SET published_url/);
-      expect(patchCalls[1][1]).toEqual(['https://aarohaom.com/dental-implants', 'opp-loop-1']);
+      // Third bound param is tenant_id (tenant-isolation work in routes/seo.ts).
+      expect(patchCalls[1][1]).toEqual(['https://aarohaom.com/dental-implants', 'opp-loop-1', 'tenant-seo-default']);
 
       // ---- Phase 2: the weekly digest should now be able to measure this opportunity ----
       vi.mocked(pool.query).mockReset();
       const backdatedCreatedAt = new Date(Date.now() - 20 * 24 * 60 * 60 * 1000).toISOString(); // 20 days ago
 
       vi.mocked(pool.query)
+        // listSeoSiteDomains(tid) (seoSiteRegistry.ts) — CLIENT_DOMAINS the digest now
+        // sources its client roster from (tenant-isolation work), queried before the
+        // pre-flight check. Domain matches the opportunity below so the per-client loop
+        // that runs after the outcome check stays internally consistent.
+        .mockResolvedValueOnce({ rows: [{ domain: 'aarohaom.com' }] } as any)
+        // best-effort tenant label lookup (`SELECT slug FROM tenants WHERE id = $1`),
+        // wrapped in its own try/catch — also runs before the pre-flight check.
+        .mockResolvedValueOnce({ rows: [{ slug: 'growth-escalators' }] } as any)
         // pre-flight — non-empty upstream, so the digest doesn't bail out early
         .mockResolvedValueOnce({ rows: [{ open_opps: 1, recent_alerts: 0, rankings: 5 }] } as any)
         // outcome check: unmeasured opportunities — the one we just "published" above

@@ -3,7 +3,6 @@ import logger from '../utils/logger';
 import { sendSlackDM } from './slackService';
 import { SLACK_JATIN, DEFAULT_TENANT_SLUG } from '../config/constants';
 import { isPaused } from '../config/featureFlags';
-import { resolveDefaultSeoTenantId } from './seoTenantContext';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -88,6 +87,78 @@ const CRON_WINDOWS: Record<string, number> = {
   'Audit Booking Follow-up': 360, 'Weekly Data Cleanup': 10080,
   'Pipeline Placement': 1,
   'System Health Check': 60, 'Late Attendance Check': 1500,
+  'Directory Scrapers': 1500,
+  // SEO — every one of these was running and scheduled but absent from this
+  // registry, so the System Health page has never shown a single SEO cron.
+  // They are the crons the SEO add-on is sold on; an agency paying for it needs
+  // to see them. Values are the nominal cadence — checkCronJobs() already
+  // allows 2x the window before calling a job unhealthy.
+  //
+  // A registered job that has never logged a run simply does not appear (the
+  // query joins against cron_job_logs), so listing the env-gated
+  // 'SEO Weekly Digest' cannot produce a permanently-overdue phantom row.
+  'SEO Weekly Email': 10080,
+  'PageSpeed Monitor': 10080, 'Rank Tracking': 10080,
+  // Daily — a drift sweep that silently stops running is worse than one that
+  // never existed, because the dashboard keeps implying pages are being watched.
+  'SEO Drift Sweep': 2880,
+
+  // ---------------------------------------------------------------------
+  // Previously unmonitored. 30 of the worker's live crons had no entry here,
+  // which meant they could stop running and never surface on System Health —
+  // including the retainer invoice generator, spend alerts, and most of the
+  // Wizmatch pilot's pollers.
+  //
+  // Adding a name is noise-free: checkCronJobs() SELECTs from cron_job_logs
+  // WHERE job_name = ANY(these) and maps over the rows it gets back, so a
+  // cron that has never run contributes no row and simply doesn't render. It
+  // cannot light up red on day one.
+  //
+  // Windows are the nominal cadence derived from each cron's own expression;
+  // the monitor itself allows 2x before calling a job stale. Day-of-week
+  // ranges are sized for the largest gap they imply (Mon-Sat -> 2 days over
+  // Sunday; Mon+Thu -> 4 days) rather than the nominal interval, because a
+  // false "overdue" is exactly the noise this is meant to remove.
+  // ---------------------------------------------------------------------
+  'Contract Expiry Sweep': 1440,
+  'Contract Signing Reminders': 1440,
+  'Daily Intelligence Report': 1440,
+  'Daily Lead Discovery': 1440,
+  'EOD Summary': 2880,
+  'Finance Monthly Generation': 44640,
+  'Money on Table': 10080,
+  'Monthly Invoice Drafts': 44640,
+  'Outreach Daily Digest': 2880,
+  'Retainer Invoice Generator': 1440,
+  'SEO GA4 Pull': 10080,
+  'SOD Digest': 2880,
+  'Social Media Prompt': 2880,
+  'Team EOD Prompt': 2880,
+  'Team SOD Prompt': 2880,
+  'Wizmatch ATS Poller': 1440,
+  'Wizmatch ATS Results-First Poller': 1440,
+  'Wizmatch Company Preparation': 1440,
+  'Wizmatch Daily Digest': 2880,
+  'Wizmatch Domain Health': 60,
+  'Wizmatch Domain Warmup': 360,
+  'Wizmatch Enrichment': 60,
+  'Wizmatch GitHub Miner': 1440,
+  'Wizmatch LCA Importer': 10080,
+  'Wizmatch Matching': 120,
+  'Wizmatch RemoteOK Importer': 1440,
+  'Wizmatch Signal Scoring': 30,
+  'Wizmatch TheirStack Importer': 10080,
+  'Wizmatch TheirStack Results-First Importer': 5760,
+  'Wizmatch X-Ray Scraper': 1440,
+  // Weekly. Renamed from 'GE SEO Pull' when it stopped being a subprocess
+  // writing to an ephemeral filesystem — the old name is gone, so a stale
+  // entry here would report a cron that no longer exists as healthy.
+  'SEO GSC Pull': 10080,
+  'SEO Alert Triggers': 1500, 'SEO Backlink Monitor': 10080,
+  'SEO Content Decay': 10080, 'SEO Weekly Digest': 10080,
+  'SEO Indexing Reminder': 10080,
+  'Competitor Content Analysis': 25920, // 1st & 15th — worst gap is a 17-day month end
+  'SEO Content Gap Analysis': 44640,    // monthly, on the 15th
 };
 
 // Alert rate limiting — 12h cooldown + 5-minute startup grace period
@@ -260,17 +331,43 @@ async function checkSeo(tenantId?: string): Promise<SubsystemHealth> {
 
   let recentMetrics = 0;
   let recentRankings = 0;
+  // Per-tenant, not aggregated. A summed count would let a healthy GE hide a
+  // reseller whose SEO pipeline has been dead for a week — the card would read
+  // HEALTHY while the tenant actually paying for the add-on gets nothing.
+  const perTenant: Array<{ tenantId: string; recentMetrics: number; recentRankings: number }> = [];
 
   try {
-    const seoTenantId = tenantId ?? await resolveDefaultSeoTenantId();
-    const r = await pool.query(`
-      SELECT
-        (SELECT COUNT(*)::int FROM seo_weekly_metrics WHERE week_start_date >= CURRENT_DATE - 14 AND tenant_id = $1) AS recent_metrics,
-        (SELECT COUNT(*)::int FROM keyword_rankings WHERE checked_at >= NOW() - INTERVAL '48 hours' AND tenant_id = $1) AS recent_rankings
-    `, [seoTenantId]);
-    const m = r.rows[0] as Record<string, string>;
-    recentMetrics = parseInt(m.recent_metrics ?? '0');
-    recentRankings = parseInt(m.recent_rankings ?? '0');
+    // NOT resolveDefaultSeoTenantId(): that throws once a second tenant has the
+    // add-on, and this catch would then pin the SEO card to WARNING with an
+    // "ambiguous tenant resolution" message forever — on the exact page a
+    // reseller is shown. See the SEO cron block in worker.ts for the same fix.
+    // An explicit tenantId means a RESELLER is looking at their own health
+    // page — scope to exactly that tenant. Sweeping every tenant here would
+    // both leak another agency's numbers into their card and answer a question
+    // they did not ask. Only the omitted case (an internal/platform caller
+    // with no request context) sweeps everyone.
+    const { getSeoTenantIds } = await import('./seoTenantContext');
+    const tenantIds = tenantId ? [tenantId] : await getSeoTenantIds();
+
+    if (tenantIds.length === 0) {
+      return { status: 'PAUSED', metrics: { paused: false, tenantsWithSeo: 0, note: 'no tenant has the SEO add-on enabled' } };
+    }
+
+    for (const tenantId of tenantIds) {
+      const r = await pool.query(`
+        SELECT
+          (SELECT COUNT(*)::int FROM seo_weekly_metrics WHERE week_start_date >= CURRENT_DATE - 14 AND tenant_id = $1) AS recent_metrics,
+          (SELECT COUNT(*)::int FROM keyword_rankings WHERE checked_at >= NOW() - INTERVAL '48 hours' AND tenant_id = $1) AS recent_rankings
+      `, [tenantId]);
+      const m = r.rows[0] as Record<string, string>;
+      perTenant.push({
+        tenantId,
+        recentMetrics: parseInt(m.recent_metrics ?? '0'),
+        recentRankings: parseInt(m.recent_rankings ?? '0'),
+      });
+    }
+    recentMetrics = perTenant.reduce((n, t) => n + t.recentMetrics, 0);
+    recentRankings = perTenant.reduce((n, t) => n + t.recentRankings, 0);
   } catch (e) {
     return {
       status: 'WARNING',
@@ -282,11 +379,30 @@ async function checkSeo(tenantId?: string): Promise<SubsystemHealth> {
     };
   }
 
+  // Worst-of across tenants, so one dead tenant surfaces even when others are fine.
+  const statusFor = (t: { recentMetrics: number; recentRankings: number }): SubsystemStatus => {
+    if (t.recentMetrics === 0 && t.recentRankings === 0) return 'CRITICAL';
+    if (t.recentMetrics === 0 || t.recentRankings === 0) return 'WARNING';
+    return 'HEALTHY';
+  };
+  const severity: Record<string, number> = { HEALTHY: 0, WARNING: 1, CRITICAL: 2 };
   let status: SubsystemStatus = 'HEALTHY';
-  if (recentMetrics === 0 && recentRankings === 0) status = 'CRITICAL';
-  else if (recentMetrics === 0 || recentRankings === 0) status = 'WARNING';
+  for (const t of perTenant) {
+    const s = statusFor(t);
+    if ((severity[s] ?? 0) > (severity[status] ?? 0)) status = s;
+  }
 
-  return { status, metrics: { recentMetrics, recentRankings } };
+  return {
+    status,
+    metrics: {
+      recentMetrics,
+      recentRankings,
+      tenantsWithSeo: perTenant.length,
+      // Named so an operator can see WHICH tenant is the unhealthy one rather
+      // than only that something is unhealthy.
+      unhealthyTenants: perTenant.filter((t) => statusFor(t) !== 'HEALTHY').map((t) => t.tenantId),
+    },
+  };
 }
 
 // tenantId: scopes every count to that tenant's own contacts/deals/invoices.
@@ -319,33 +435,13 @@ async function checkInfrastructure(): Promise<SubsystemHealth> {
     checks.webUp = r.ok;
   } catch { checks.webUp = false; }
 
-  // n8n — check /healthz AND DB connectivity via API
-  if (!process.env.N8N_API_KEY) {
-    checks.n8nUp = null; // Not configured — don't alarm
-  } else {
-    try {
-      const n8nUrl = process.env.N8N_BASE_URL || 'https://primary-production-6c6f5.up.railway.app';
-      const r = await fetch(`${n8nUrl}/healthz`, { signal: AbortSignal.timeout(5000) });
-      checks.n8nUp = r.ok;
-
-      if (r.ok) {
-        const apiKey = process.env.N8N_API_KEY;
-        if (apiKey) {
-          try {
-            const dbCheck = await fetch(`${n8nUrl}/api/v1/workflows?limit=1`, {
-              headers: { 'X-N8N-API-KEY': apiKey },
-              signal: AbortSignal.timeout(5000),
-            });
-            checks.n8nDbHealthy = dbCheck.ok;
-            if (!dbCheck.ok) checks.n8nUp = false;
-          } catch {
-            checks.n8nDbHealthy = false;
-            checks.n8nUp = false;
-          }
-        }
-      }
-    } catch { checks.n8nUp = false; }
-  }
+  // n8n reachability check removed — n8n has been decommissioned (no
+  // instance exists to poll), and the fallback URL it hit
+  // (primary-production-6c6f5.up.railway.app) is a dead host. The 13 native
+  // src/services/seo* services that replaced n8n's SEO workflows are
+  // monitored the same way as every other cron: safeCron() + the
+  // "System Health Check" / cronJobs section below, not a separate
+  // n8n-specific probe.
 
   // Database
   const dbStart = Date.now();
@@ -360,7 +456,7 @@ async function checkInfrastructure(): Promise<SubsystemHealth> {
 
   let status: SubsystemStatus = 'HEALTHY';
   if (!checks.webUp) status = 'CRITICAL';
-  else if ((checks.n8nUp !== null && !checks.n8nUp) || !checks.metaTokenSet) status = 'WARNING';
+  else if (!checks.metaTokenSet) status = 'WARNING';
 
   return { status, metrics: checks };
 }

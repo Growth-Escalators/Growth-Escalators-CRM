@@ -238,6 +238,65 @@ describe('PR 8B scope boundary — PR 9/10 must not have started', () => {
       + 'Smartlead/reply-ingestion data of any kind. Renumbered from 45 to 46 during merge — 45 was '
       + 'already claimed by the roles/role_permissions PR. Unrelated to PR 9/10 (Smartlead / reply '
       + 'ingestion).',
+    // SEO platform phases 1-6. RENUMBERED 45-49 -> 47-51 during the merge with
+    // main, which had independently claimed 45 (RBAC) and 46 (user_invites).
+    // SQL bodies unchanged; only the file numbers and the journal moved.
+    47: 'SEO tenant hardening (Phase 1 of the multi-tenant SEO platform work, owner-approved). '
+      + 'Backfills + constrains `seo_content_calendar.tenant_id` (it previously defaulted to a sentinel '
+      + 'UUID that is not a real `tenants` row, so every existing row pointed at a nonexistent tenant), '
+      + 'adds three nullable approval columns to `client_pages`, adds a nullable `tenant_id` to '
+      + '`seo_workflow_logs`, and DROPs the four unused `seo_looker_*` views (no consumer; they selected '
+      + 'no tenant_id and were rebuildable via an unauthenticated route). Touches only SEO tables. '
+      + 'Carries no outreach, sequence, reply, or provider data. Unrelated to PR 9/10 (Smartlead / '
+      + 'reply ingestion).',
+    48: 'seo_sites registry (Phase 2 of the multi-tenant SEO platform work, owner-approved). Creates '
+      + 'the `seo_sites` table — the registry that replaces nine hardcoded client-domain arrays '
+      + 'scattered across the SEO services — and adds a NULLABLE `site_id` FK to the nine existing SEO '
+      + 'tables, then seeds the registry from the distinct (tenant_id, client_domain) pairs already '
+      + 'present and backfills `site_id` from it. Fully additive: no SET NOT NULL, no unique index over '
+      + 'pre-existing data, no DROP, and every statement is IF NOT EXISTS / duplicate_object-guarded '
+      + 'because ensureSeoTables() drifts these tables at runtime. Seed and backfill join on BOTH '
+      + 'tenant_id and a normalised domain, so two tenants working on the same domain each get their '
+      + 'own row rather than being cross-linked — verified against a fixture before landing. Touches '
+      + 'only SEO tables. Carries no outreach, sequence, reply, or provider data. Unrelated to PR 9/10 '
+      + '(Smartlead / reply ingestion).',
+    49: 'Drops seo_content_calendar\'s legacy 3-column unique index (client_domain, keyword, '
+      + 'content_type) — the deferred half of migration 0045, which added the tenant-scoped 4-column '
+      + 'index alongside it and kept the old one because in-flight code still named the 3-column '
+      + 'ON CONFLICT target. Every writer now names the 4-column target (routes/seo.ts, '
+      + 'seoContentDecayService, seoContentGapService; grep-verified zero 3-column targets remain), '
+      + 'so the old index is dropped here. Not merely redundant: UNIQUE on those three columns with '
+      + 'no tenant column made the combination GLOBALLY exclusive, so two tenants could not both hold '
+      + 'a calendar entry for the same keyword on the same domain — the second write either '
+      + "overwrote the first tenant's row or failed. A single DROP INDEX IF EXISTS; dropping an index "
+      + 'never fails on data, and the 4-column index still enforces per-tenant uniqueness. Touches '
+      + 'only SEO tables. Carries no outreach, sequence, reply, or provider data. Unrelated to PR 9/10 '
+      + '(Smartlead / reply ingestion).',
+    50: 'site_changes + seo_site_snapshots (Phase 3 of the multi-tenant SEO platform work, '
+      + 'owner-approved). Two NEW tables: `site_changes` records one proposed edit to a live client '
+      + 'website per row and is where the human-approval hard stop is enforced; `seo_site_snapshots` '
+      + 'is the append-only drift record (extracted SEO elements plus a hash, never page HTML). '
+      + 'Purely additive: no ALTER of an existing table, no DROP, no SET NOT NULL, no unique index '
+      + 'over pre-existing rows. Carries the `site_changes_approved_requires_approver` CHECK — the '
+      + 'database-level half of the invariant that nothing publishes to a live site without a '
+      + 'recorded human approver and timestamp. Every statement is IF NOT EXISTS / '
+      + 'duplicate_object-guarded, including the CHECK, which drizzle-kit emitted inline in CREATE '
+      + 'TABLE where a pre-existing table would have skipped it. Touches only SEO tables. Carries no '
+      + 'outreach, sequence, reply, or provider data. Unrelated to PR 9/10 (Smartlead / reply '
+      + 'ingestion).',
+    51: 'seo_api_usage spend ledger (Phase 4 of the multi-tenant SEO platform work, owner-approved). '
+      + 'One NEW table recording one row per billable SEO API call (tenant_id, nullable site_id, '
+      + 'provider, operation, calls, cost_cents) — the backing store seoCostGuard.ts has carried an '
+      + 'explicit "INTENTIONALLY MISSING, needs a migration" note for since Phase 1. It replaces an '
+      + 'in-memory process-lifetime global counter that reset on every deploy and let tenants starve '
+      + "each other. Purely additive: no ALTER of an existing table, no DROP, no SET NOT NULL. NOTE: "
+      + 'drizzle-kit additionally emitted a DROP + re-ADD of the site_changes_approved_requires_approver '
+      + 'CHECK with byte-identical text (a snapshot artefact of 0048 having moved that constraint into '
+      + 'its own duplicate_object-guarded DO block); BOTH statements were deleted by hand, so the '
+      + 'human-approval hard stop is never dropped. Verified post-migration against local Postgres: the '
+      + 'constraint is still present and still rejects an approved-status row with no approver. Touches '
+      + 'only SEO tables. Carries no outreach, sequence, reply, or provider data. Unrelated to PR 9/10 '
+      + '(Smartlead / reply ingestion).',
   };
 
   it('every migration past 0037 is in the reviewed out-of-scope allowlist', () => {

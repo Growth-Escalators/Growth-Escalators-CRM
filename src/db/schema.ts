@@ -1000,6 +1000,9 @@ export const clientKnowledgeBase = pgTable(
   {
     id: uuid('id').primaryKey().defaultRandom(),
     tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+    // Nullable on purpose — see the seo_sites docblock. Reads still go via
+    // project_name/client_domain until every service has migrated.
+    siteId: uuid('site_id').references(() => seoSites.id),
     projectName: text('project_name').notNull(),
     brandSummary: text('brand_summary'),
     idealCustomer: text('ideal_customer'),
@@ -1033,6 +1036,7 @@ export const clientKnowledgeBase = pgTable(
   },
   (t) => ({
     tenantIdIdx: index('client_knowledge_base_tenant_id_idx').on(t.tenantId),
+    siteIdIdx: index('client_knowledge_base_site_id_idx').on(t.siteId),
   }),
 );
 
@@ -1044,6 +1048,9 @@ export const clientPages = pgTable(
   {
     id: uuid('id').primaryKey().defaultRandom(),
     tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+    // Nullable on purpose — see the seo_sites docblock. Reads still go via
+    // project_name/client_domain until every service has migrated.
+    siteId: uuid('site_id').references(() => seoSites.id),
     projectName: text('project_name').notNull(),
     pageUrl: text('page_url').notNull(),
     pageTitle: text('page_title'),
@@ -1063,9 +1070,27 @@ export const clientPages = pgTable(
     metaDescription: text('meta_description'),
     content: text('content'),
     createdAt: timestamp('created_at').defaultNow(),
+    // Approval metadata (migration 0045). A staged page change must carry who
+    // approved it and when — `publishApprovedChange()` refuses to publish a row
+    // whose approved_by/approved_at are unset, which is what makes the
+    // hard-stop-before-publish rule enforced code rather than convention.
+    // Deliberately reusing the existing (currently never-written)
+    // `published_date` / `last_updated` columns instead of adding
+    // `published_at` / `updated_at`, to avoid two near-identical column pairs.
+    approvedBy: uuid('approved_by'),
+    approvedAt: timestamp('approved_at'),
+    rejectedReason: text('rejected_reason'),
   },
   (t) => ({
     tenantIdIdx: index('client_pages_tenant_id_idx').on(t.tenantId),
+    siteIdIdx: index('client_pages_site_id_idx').on(t.siteId),
+    // NOTE: a UNIQUE (tenant_id, client_domain, page_slug) index is NOT added
+    // here on purpose. Duplicates demonstrably exist in prod — that is why
+    // publishPendingToWordPress() dedupes in JavaScript — so creating the index
+    // would abort the migration and, since Railway migrates on boot, stop the
+    // API from starting. It needs a DELETE-dedupe first, which is irreversible
+    // data loss against a database that currently has no backups. Deferred to
+    // its own migration + explicit sign-off (needed by Phase 3, not Phase 1).
   }),
 );
 
@@ -1077,6 +1102,9 @@ export const keywordRankings = pgTable(
   {
     id: uuid('id').primaryKey().defaultRandom(),
     tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+    // Nullable on purpose — see the seo_sites docblock. Reads still go via
+    // project_name/client_domain until every service has migrated.
+    siteId: uuid('site_id').references(() => seoSites.id),
     projectName: text('project_name').notNull(),
     keyword: text('keyword').notNull(),
     currentPosition: numeric('current_position'),
@@ -1095,6 +1123,7 @@ export const keywordRankings = pgTable(
     projectKeywordIdx: index('keyword_rankings_project_keyword_idx').on(t.projectName, t.keyword),
     recordedDateIdx: index('keyword_rankings_recorded_date_idx').on(t.recordedDate),
     tenantIdIdx: index('keyword_rankings_tenant_id_idx').on(t.tenantId),
+    siteIdIdx: index('keyword_rankings_site_id_idx').on(t.siteId),
   }),
 );
 
@@ -1106,6 +1135,9 @@ export const backlinkData = pgTable(
   {
     id: uuid('id').primaryKey().defaultRandom(),
     tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+    // Nullable on purpose — see the seo_sites docblock. Reads still go via
+    // project_name/client_domain until every service has migrated.
+    siteId: uuid('site_id').references(() => seoSites.id),
     projectName: text('project_name').notNull(),
     sourceUrl: text('source_url'),
     targetUrl: text('target_url'),
@@ -1124,6 +1156,7 @@ export const backlinkData = pgTable(
     projectIdx: index('backlink_data_project_idx').on(t.projectName),
     statusIdx: index('backlink_data_status_idx').on(t.status),
     tenantIdIdx: index('backlink_data_tenant_id_idx').on(t.tenantId),
+    siteIdIdx: index('backlink_data_site_id_idx').on(t.siteId),
   }),
 );
 
@@ -1165,6 +1198,9 @@ export const seoOpportunities = pgTable(
   {
     id: uuid('id').primaryKey().defaultRandom(),
     tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+    // Nullable on purpose — see the seo_sites docblock. Reads still go via
+    // project_name/client_domain until every service has migrated.
+    siteId: uuid('site_id').references(() => seoSites.id),
     projectName: text('project_name').notNull(),
     opportunityType: text('opportunity_type'),
     description: text('description'),
@@ -1187,6 +1223,7 @@ export const seoOpportunities = pgTable(
   (t) => ({
     projectStatusIdx: index('seo_opportunities_project_status_idx').on(t.projectName, t.status),
     tenantIdIdx: index('seo_opportunities_tenant_id_idx').on(t.tenantId),
+    siteIdIdx: index('seo_opportunities_site_id_idx').on(t.siteId),
   }),
 );
 
@@ -1198,6 +1235,9 @@ export const siteHealthMetrics = pgTable(
   {
     id: uuid('id').primaryKey().defaultRandom(),
     tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+    // Nullable on purpose — see the seo_sites docblock. Reads still go via
+    // project_name/client_domain until every service has migrated.
+    siteId: uuid('site_id').references(() => seoSites.id),
     projectName: text('project_name').notNull(),
     pagespeedMobile: numeric('pagespeed_mobile'),
     pagespeedDesktop: numeric('pagespeed_desktop'),
@@ -1214,6 +1254,7 @@ export const siteHealthMetrics = pgTable(
   (t) => ({
     projectCheckedAtIdx: index('site_health_project_checked_at_idx').on(t.projectName, t.checkedAt),
     tenantIdIdx: index('site_health_metrics_tenant_id_idx').on(t.tenantId),
+    siteIdIdx: index('site_health_metrics_site_id_idx').on(t.siteId),
   }),
 );
 
@@ -1251,6 +1292,9 @@ export const seoWeeklyMetrics = pgTable(
   {
     id: uuid('id').primaryKey().defaultRandom(),
     tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+    // Nullable on purpose — see the seo_sites docblock. Reads still go via
+    // project_name/client_domain until every service has migrated.
+    siteId: uuid('site_id').references(() => seoSites.id),
     projectName: text('project_name'),
     clientDomain: text('client_domain'),
     clientName: text('client_name'),
@@ -1267,6 +1311,7 @@ export const seoWeeklyMetrics = pgTable(
   (t) => ({
     domainWeekIdx: index('seo_weekly_metrics_domain_week_idx').on(t.clientDomain, t.weekStart),
     tenantIdIdx: index('seo_weekly_metrics_tenant_id_idx').on(t.tenantId),
+    siteIdIdx: index('seo_weekly_metrics_site_id_idx').on(t.siteId),
   }),
 );
 
@@ -1280,6 +1325,9 @@ export const seoAlertsLog = pgTable(
   {
     id: uuid('id').primaryKey().defaultRandom(),
     tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+    // Nullable on purpose — see the seo_sites docblock. Reads still go via
+    // project_name/client_domain until every service has migrated.
+    siteId: uuid('site_id').references(() => seoSites.id),
     projectName: text('project_name').notNull(),
     alertType: text('alert_type'),
     message: text('message'),
@@ -1291,6 +1339,7 @@ export const seoAlertsLog = pgTable(
   (t) => ({
     createdIdx: index('seo_alerts_log_created_idx').on(t.createdAt),
     tenantIdIdx: index('seo_alerts_log_tenant_id_idx').on(t.tenantId),
+    siteIdIdx: index('seo_alerts_log_site_id_idx').on(t.siteId),
   }),
 );
 
@@ -2478,7 +2527,16 @@ export const seoContentCalendar = pgTable(
   'seo_content_calendar',
   {
     id: serial('id').primaryKey(),
-    tenantId: uuid('tenant_id').default('00000000-0000-0000-0000-000000000001'),
+    // Was `.default('00000000-…0001')` — a sentinel that is NOT a real row in
+    // `tenants`, so every calendar row written before migration 0045 pointed at
+    // a tenant that does not exist. Migration 0045 backfills those to the
+    // growth-escalators tenant BEFORE adding this FK; adding the FK without
+    // that backfill aborts the migration, and Railway applies migrations on
+    // boot, so the API would fail to start (this is how 0035 broke prod).
+    tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+    // Nullable on purpose — see the seo_sites docblock. Reads still go via
+    // project_name/client_domain until every service has migrated.
+    siteId: uuid('site_id').references(() => seoSites.id),
     clientDomain: text('client_domain').notNull(),
     keyword: text('keyword').notNull(),
     contentType: text('content_type').notNull().default('blog'),
@@ -2496,7 +2554,29 @@ export const seoContentCalendar = pgTable(
     updatedAt: timestamp('updated_at').defaultNow(),
   },
   (t) => ({
-    uniqueIdx: uniqueIndex('seo_content_calendar_unique_idx').on(t.clientDomain, t.keyword, t.contentType),
+    // The 3-column unique index (client_domain, keyword, content_type) is GONE
+    // as of migration 0047 — this is the "LATER migration" the previous note
+    // here promised.
+    //
+    // It was kept through 0045 because running code still did
+    // `ON CONFLICT (client_domain, keyword, content_type)`, and dropping it in
+    // the same migration that added the 4-column one would have made every
+    // in-flight POST throw `no unique or exclusion constraint matching` until
+    // the new code deployed. That condition no longer holds: every writer now
+    // targets the tenant-scoped index (routes/seo.ts, seoContentDecayService,
+    // seoContentGapService — grep confirms zero 3-column targets remain).
+    //
+    // Keeping it any longer was not neutral. While it existed, two tenants
+    // could not both hold a calendar entry for the same
+    // (domain, keyword, content_type) — the second one's INSERT would either
+    // overwrite the first tenant's row or fail outright, depending on which
+    // target the writer named. Dropping it is what actually lets two agencies
+    // work the same keyword on the same domain independently.
+    tenantUniqueIdx: uniqueIndex('seo_content_calendar_tenant_unique_idx').on(
+      t.tenantId, t.clientDomain, t.keyword, t.contentType,
+    ),
+    tenantIdIdx: index('seo_content_calendar_tenant_id_idx').on(t.tenantId),
+    siteIdIdx: index('seo_content_calendar_site_id_idx').on(t.siteId),
     statusIdx: index('seo_calendar_status_idx').on(t.status),
     clientIdx: index('seo_calendar_client_idx').on(t.clientDomain),
   }),
@@ -3342,6 +3422,83 @@ export const subscriptions = pgTable(
 );
 
 // ---------------------------------------------------------------------------
+// TABLE — seo_sites (the SEO site registry)
+//
+// Every SEO table before this one keys on the *string* `project_name` /
+// `client_domain`. That worked while SEO was single-tenant with three
+// hand-maintained domains hardcoded in nine different files. It does not work
+// once a reseller tenant registers its own client's site: two tenants can
+// legitimately both work on `example.com`, and a string key cannot tell them
+// apart.
+//
+// `seo_sites` is the registry those strings become foreign keys to. Note the
+// deliberate migration shape (see migration 0046): the legacy string columns
+// are NOT renamed or dropped. ~135 raw SQL statements across 22 files read
+// them, and Railway applies migrations on boot, so a rename is a guaranteed
+// outage. Instead every SEO table gains a NULLABLE `site_id`, gets backfilled
+// where the domain resolves, and reads migrate service-by-service. Making it
+// NOT NULL is a later migration, after the last string read is gone.
+//
+// `adapter_config` holds NON-SECRET config only (site URL, theme snippet
+// location, default author id). Credentials live in `tenant_integrations`,
+// encrypted; `credential_provider` is the pointer into it — a `provider` value,
+// not a secret. See AGENTS.md credential hygiene.
+// ---------------------------------------------------------------------------
+export const seoSites = pgTable(
+  'seo_sites',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+    // Nullable: GE's own properties (growthescalators.com) are sites without a
+    // paying client row behind them. A reseller's sites will normally set it.
+    clientId: uuid('client_id').references(() => clients.id),
+    // Human label shown in the admin ("Dr Dubay — main site").
+    label: text('label').notNull(),
+    // Bare registrable domain, no scheme, no trailing slash, lowercased —
+    // normalised by seoSiteRegistry.normaliseDomain() on every write, because
+    // the unique index below is the only thing stopping the same site being
+    // registered twice as `Example.com` and `example.com/`.
+    domain: text('domain').notNull(),
+    // 'git' | 'wordpress' | 'shopify' | 'unknown' — plain text, not pgEnum, to
+    // match the repo convention for status-like columns. The SiteAdapter
+    // factory (src/modules/site/providers/) resolves this to a provider, and
+    // callers branch on that provider's CAPABILITIES, never on this string.
+    platform: text('platform').notNull().default('unknown'),
+    // Non-secret adapter config only. Never a password, token, or app key.
+    adapterConfig: jsonb('adapter_config').default({}),
+    // Pointer into tenant_integrations.provider — e.g. 'wordpress'. Not a
+    // secret; the secret it points at is encrypted in that table.
+    credentialProvider: text('credential_provider'),
+    // e.g. 'sc-domain:example.com' or 'https://example.com/'.
+    gscProperty: text('gsc_property'),
+    ga4PropertyId: text('ga4_property_id'),
+    // 'low' | 'standard' | 'high' — drives how much verification a change
+    // needs before it can be approved.
+    riskProfile: text('risk_profile').notNull().default('standard'),
+    // Named checks a change must pass before it can reach `awaiting_approval`.
+    requiredChecks: text('required_checks').array().default([]),
+    // Deliberately defaults FALSE and stays false for the pilot. The
+    // human-approval hard stop is the entire safety story for a system that
+    // edits live client websites; a column that can switch it off is exactly
+    // the thing that must not default on.
+    autoPublishAllowed: boolean('auto_publish_allowed').notNull().default(false),
+    // How long an outcome must be observed before it can be scored and
+    // promoted into the playbook. The delayed-promotion window is the IP.
+    observationWindowDays: integer('observation_window_days').notNull().default(21),
+    // 'active' | 'paused' | 'archived'. Crons skip anything not 'active'.
+    status: text('status').notNull().default('active'),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+    updatedAt: timestamp('updated_at').notNull().defaultNow(),
+  },
+  (t) => ({
+    tenantIdIdx: index('seo_sites_tenant_id_idx').on(t.tenantId),
+    // The isolation guarantee: two tenants may each register example.com, but
+    // neither can register it twice.
+    tenantDomainUniq: uniqueIndex('seo_sites_tenant_id_domain_uniq').on(t.tenantId, t.domain),
+  }),
+);
+
+// ---------------------------------------------------------------------------
 // TABLE — roles (foundation for tenant-customizable RBAC)
 //
 // Additive-only, not wired into any route yet. Today's authorization still
@@ -3372,6 +3529,265 @@ export const roles = pgTable(
   },
   (t) => ({
     tenantKeyUniq: uniqueIndex('roles_tenant_key_unique').on(t.tenantId, t.key),
+  }),
+);
+
+// ---------------------------------------------------------------------------
+// TABLE — site_changes (migration 0050)
+//
+// One row per PROPOSED edit to a live client website. This is the table the
+// human-approval hard stop is enforced on.
+//
+// WHY NOT EXTEND `client_pages`. Three reasons, each sufficient on its own:
+//  1. `client_pages` is a page INVENTORY — one row per page that exists. A
+//     change is a proposal EVENT: many per page over time, each with its own
+//     approval identity and timestamps, and a terminal `superseded` state when
+//     a newer proposal replaces it. Folding an event log into an inventory
+//     table loses the history that the 14–28 day outcome scoring reads.
+//  2. `client_pages.page_url` is NOT NULL, so a change to a page that does not
+//     exist yet would need a fabricated URL. The programmatic-SEO code already
+//     fabricates one (`https://…/${slug}/` before WordPress has assigned
+//     anything) — that is a workaround, not a pattern to institutionalise.
+//  3. Not every change is a page. A 301, a robots.txt edit and a Shopify
+//     metafield are all changes with no page row to hang off — hence
+//     `change_kind` below and a NULLABLE `page_url`.
+//
+// `site_id` is NOT NULL here, unlike the nullable `site_id` retrofitted onto
+// the ten legacy SEO tables: this table is new, so there is no pre-existing
+// row that predates the registry and nothing to backfill.
+// ---------------------------------------------------------------------------
+export const siteChanges = pgTable(
+  'site_changes',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+    siteId: uuid('site_id').notNull().references(() => seoSites.id),
+
+    // 'page_create' | 'page_update' | 'redirect' | 'robots_txt' | 'metafield'.
+    // Plain text, not pgEnum — repo convention for status-like columns.
+    changeKind: text('change_kind').notNull().default('page_update'),
+    // Nullable on purpose — see reason 3 in the docblock above.
+    pageUrl: text('page_url'),
+
+    // See nextSiteChangeStatus() in src/services/siteChangeService.ts — that
+    // pure function is the ONLY thing allowed to compute a new value here, and
+    // its exhaustive switch is the authoritative list of legal values.
+    status: text('status').notNull().default('proposed'),
+
+    // Optimistic-concurrency token. The approval UI sends the version it
+    // rendered; a write whose version no longer matches is rejected rather
+    // than silently overwriting a decision someone else just made. Without
+    // this, two operators with the page open both click approve and the second
+    // one's stale view wins.
+    version: integer('version').notNull().default(1),
+
+    // The vendor-neutral SiteChangeInput (title/metaTitle/metaDescription/
+    // canonicalUrl/bodyHtml/structuredData/redirectFrom). Stored whole so the
+    // approval UI can render exactly what was proposed, months later, even if
+    // the generating service has changed shape since.
+    payload: jsonb('payload').notNull().default({}),
+
+    // ---- staging (provider-side, pre-publish) ----
+    // Opaque provider handle: a git branch name, a WP draft post id, a Shopify
+    // unpublished page id.
+    stagedRef: text('staged_ref'),
+    // Only ever set when the provider's capabilities.stagesRemoteDraft.
+    previewUrl: text('preview_url'),
+    // Only ever set when the provider's capabilities.producesReviewableDiff.
+    // Text, not jsonb: it is a unified diff meant to be rendered verbatim.
+    diff: text('diff'),
+    stagedAt: timestamp('staged_at'),
+
+    // ---- verification ----
+    verifyPassed: boolean('verify_passed'),
+    // SiteVerifyIssue[] — severity/code/message. Kept even on a pass, because
+    // warnings are exactly what an approver needs to see before deciding.
+    verifyIssues: jsonb('verify_issues').notNull().default([]),
+    verifiedAt: timestamp('verified_at'),
+
+    // ---- the human decision (the hard stop) ----
+    // The CHECK constraint below is the database-level half of the invariant:
+    // no row can sit in an approved-or-later status without both of these set.
+    // assertSiteChangeApproved() is the application-level half. Two independent
+    // enforcement points, because this is the one invariant whose failure means
+    // the system edited a client's live website with nobody's consent.
+    approvedBy: uuid('approved_by').references(() => users.id),
+    approvedAt: timestamp('approved_at'),
+    rejectedBy: uuid('rejected_by').references(() => users.id),
+    rejectedAt: timestamp('rejected_at'),
+    // Free-text reason captured at approve/reject time. Required by the UI on
+    // reject; optional on approve.
+    decisionReason: text('decision_reason'),
+
+    // ---- publish ----
+    // Set once when a publish attempt starts, and reused verbatim on retry so
+    // a provider with capabilities.supportsIdempotentPublish can recognise the
+    // same request. UNIQUE (nulls distinct) so a second concurrent attempt
+    // cannot claim a different id for the same change.
+    publishRequestId: uuid('publish_request_id'),
+    publishedAt: timestamp('published_at'),
+    liveUrl: text('live_url'),
+    // Provider-side id of the published object (WP post id, Shopify page id).
+    externalRef: text('external_ref'),
+    // The full SitePublishResult union, including the git handoff branch and
+    // compare URL — the human doing the merge needs those, and they have no
+    // natural column.
+    publishResult: jsonb('publish_result'),
+    lastError: text('last_error'),
+    lastErrorAt: timestamp('last_error_at'),
+
+    // ---- outcome ----
+    // When the drift sweep confirmed this change actually went live. THIS is
+    // what starts the observation-window clock that outcome scoring reads —
+    // not publishedAt. A publish that silently failed to render must not be
+    // scored as if it shipped, which is the whole point of the sweep.
+    verifiedLiveAt: timestamp('verified_live_at'),
+    supersededByChangeId: uuid('superseded_by_change_id'),
+
+    // 'cron' | 'admin' | 'agent' — where the proposal came from.
+    source: text('source').notNull().default('admin'),
+    createdBy: uuid('created_by').references(() => users.id),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+    updatedAt: timestamp('updated_at').notNull().defaultNow(),
+  },
+  (t) => ({
+    tenantIdIdx: index('site_changes_tenant_id_idx').on(t.tenantId),
+    siteIdIdx: index('site_changes_site_id_idx').on(t.siteId),
+    // The approval queue's own query: one tenant's changes in one status,
+    // newest first.
+    tenantStatusIdx: index('site_changes_tenant_status_idx').on(t.tenantId, t.status),
+    // Drives the drift sweep's "was this URL changed by us recently?" join.
+    sitePageIdx: index('site_changes_site_page_idx').on(t.siteId, t.pageUrl),
+    publishRequestIdUniq: uniqueIndex('site_changes_publish_request_id_uniq').on(t.publishRequestId),
+    // Self-reference, declared here rather than inline because the table is
+    // still being defined at column-declaration time.
+    supersededByFk: foreignKey({
+      columns: [t.supersededByChangeId],
+      foreignColumns: [t.id],
+      name: 'site_changes_superseded_by_change_id_fkey',
+    }),
+    // The hard stop, in the database. A row can only reach an approved-or-later
+    // status with a recorded human and a recorded time. An UPDATE that sets
+    // status='approved' without them fails outright rather than quietly
+    // producing a publishable change.
+    approvalRequiresApprover: check(
+      'site_changes_approved_requires_approver',
+      sql`${t.status} NOT IN ('approved', 'publishing', 'published', 'handoff_required', 'publish_failed')
+          OR (${t.approvedBy} IS NOT NULL AND ${t.approvedAt} IS NOT NULL)`,
+    ),
+  }),
+);
+
+// ---------------------------------------------------------------------------
+// TABLE — seo_site_snapshots (migration 0048)
+//
+// Append-only record of what each tracked URL actually looked like, each time
+// the drift sweep read it. This is the table behind the differentiator: the
+// detector for "the client edited the page behind the agency's back".
+//
+// NEVER STORE FULL HTML HERE. `elements` holds the extracted SEO surface
+// (SeoElements in src/modules/site/liveSnapshot.ts) plus a hash — roughly
+// 400 bytes a row. Full HTML would be ~80 KB a row, which for three sites
+// sweeping daily is ~17 GB/year against a few MB. The hash is what makes the
+// common case (nothing changed) a single integer comparison rather than a
+// document diff.
+// ---------------------------------------------------------------------------
+export const seoSiteSnapshots = pgTable(
+  'seo_site_snapshots',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+    siteId: uuid('site_id').notNull().references(() => seoSites.id),
+    pageUrl: text('page_url').notNull(),
+    fetchedAt: timestamp('fetched_at').notNull().defaultNow(),
+    // 404/410 is a legitimate, meaningful reading (drift_kind 'page_gone'),
+    // not an error to discard — so it is stored like any other status.
+    httpStatus: integer('http_status').notNull(),
+    // sha256 of the extracted elements, from hashSeoElements().
+    contentHash: text('content_hash').notNull(),
+    // SeoElements: metaTitle/metaDescription/canonicalUrl/robots/h1/h1Count/
+    // jsonLdTypes/wordCount/internalLinkCount/externalLinkCount.
+    elements: jsonb('elements').notNull().default({}),
+
+    // NULL when nothing changed since the previous snapshot. Otherwise:
+    // 'verified_live' (matched one of our approved, recently-published
+    // changes), 'unexpected_edit' (changed with no approved change behind it —
+    // the sellable one), 'page_gone', 'noindex_added', 'canonical_changed',
+    // 'structured_data_removed'.
+    driftKind: text('drift_kind'),
+    // 'info' | 'warning' | 'critical'. noindex/canonical/JSON-LD loss are
+    // higher severity than a copy edit because they cost rankings silently.
+    driftSeverity: text('drift_severity'),
+    // Which SeoElements fields differed, from diffSeoElements().
+    changedFields: text('changed_fields').array().default([]),
+    // Set only for 'verified_live' — the approved change this drift matched.
+    matchedChangeId: uuid('matched_change_id').references(() => siteChanges.id),
+    // Set once a Slack/email alert has gone out, so a persistent drift alerts
+    // once rather than every sweep.
+    alertedAt: timestamp('alerted_at'),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+  },
+  (t) => ({
+    tenantIdIdx: index('seo_site_snapshots_tenant_id_idx').on(t.tenantId),
+    siteIdIdx: index('seo_site_snapshots_site_id_idx').on(t.siteId),
+    // The sweep's hot path: the most recent snapshot for one URL on one site.
+    sitePageFetchedIdx: index('seo_site_snapshots_site_page_fetched_idx').on(t.siteId, t.pageUrl, t.fetchedAt),
+    // The admin's "what drifted on my sites?" query.
+    tenantDriftIdx: index('seo_site_snapshots_tenant_drift_idx').on(t.tenantId, t.driftKind),
+  }),
+);
+
+// ---------------------------------------------------------------------------
+// TABLE — seo_api_usage (migration 0049)
+//
+// The per-tenant/per-site spend ledger behind seoCostGuard.ts. That file has
+// carried an explicit "INTENTIONALLY MISSING" note since Phase 1 saying its
+// usage fetch could not be written because this table did not exist and adding
+// it needs a migration. This is that table.
+//
+// It replaces an in-memory, process-lifetime global counter
+// (`checkAndIncrementSeoSerperCap`), which was fine for one internal tenant and
+// cannot survive being sold per site: a single shared counter lets tenants
+// starve each other, resets on every deploy, and gives no way to quote an
+// agency a fixed price without absorbing unbounded tail risk.
+//
+// One row per billable call — deliberately append-only rather than a running
+// per-day counter. A counter cannot answer "what did this client actually cost
+// us last month", which is the question that makes the add-on priceable, and a
+// counter that resets on deploy is exactly what this replaces.
+// ---------------------------------------------------------------------------
+export const seoApiUsage = pgTable(
+  'seo_api_usage',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+    // Nullable: some spend is genuinely tenant-level, not attributable to one
+    // site (a GSC token refresh, an account-wide quota probe). Recording those
+    // against an arbitrary site would corrupt per-site cost, which is the
+    // number the pricing rests on.
+    siteId: uuid('site_id').references(() => seoSites.id),
+    // 'serper' | 'pagespeed' | 'gsc' | 'ga4' | 'llm' | 'publish' — plain text,
+    // matching the repo convention and seoCostGuard's own free-form labels.
+    provider: text('provider').notNull(),
+    // e.g. 'serper_search' | 'pagespeed_check' | 'gsc_pull' | 'publish'.
+    operation: text('operation').notNull(),
+    // Usually 1. Present because some providers bill per batch, and counting
+    // requests when the vendor counts records would undercount the cap.
+    calls: integer('calls').notNull().default(1),
+    // Integer paise/cents — never a float. Money in floating point accumulates
+    // error exactly where a cap is supposed to be exact.
+    costCents: integer('cost_cents').notNull().default(0),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+  },
+  (t) => ({
+    // Drives every aggregate in SeoCostGuardUsage: the month/day cost sums and
+    // the tenant-scoped per-provider daily call counts.
+    tenantCreatedIdx: index('seo_api_usage_tenant_created_idx').on(t.tenantId, t.createdAt),
+    // The per-site caps (siteDaySerperCalls, siteDayPublishes).
+    siteCreatedIdx: index('seo_api_usage_site_created_idx').on(t.siteId, t.createdAt),
+    tenantProviderCreatedIdx: index('seo_api_usage_tenant_provider_created_idx').on(
+      t.tenantId, t.provider, t.createdAt,
+    ),
   }),
 );
 
