@@ -1,5 +1,5 @@
 import logger from '../utils/logger';
-import { Router } from 'express';
+import { Router, type Request, type Response } from 'express';
 import { eq, sql } from 'drizzle-orm';
 import { db, sequences, sequenceEnrolments } from '../db/index';
 import {
@@ -7,6 +7,7 @@ import {
   cancelEnrolment,
   getActiveEnrolments,
 } from '../services/sequenceService';
+import { requirePerm } from '../middleware/requirePerm';
 
 const router = Router();
 
@@ -15,7 +16,7 @@ const router = Router();
 // tenantId is always the authenticated caller's own tenant — a client-supplied
 // tenantId would let one tenant create sequences inside another's account (IDOR).
 // ---------------------------------------------------------------------------
-router.post('/', async (req, res) => {
+router.post('/', requirePerm('sequences.manage'), async (req: Request, res: Response) => {
   const tenantId = req.user!.tenantId;
   const { name, channel, steps } = req.body;
 
@@ -35,7 +36,7 @@ router.post('/', async (req, res) => {
 // ---------------------------------------------------------------------------
 // GET /sequences — list sequences for the authenticated tenant
 // ---------------------------------------------------------------------------
-router.get('/', async (req, res) => {
+router.get('/', requirePerm('sequences.view'), async (req: Request, res: Response) => {
   const tenantId = req.user!.tenantId;
   const rows = await db.select().from(sequences).where(eq(sequences.tenantId, tenantId));
   res.json(rows);
@@ -44,7 +45,7 @@ router.get('/', async (req, res) => {
 // ---------------------------------------------------------------------------
 // GET /sequences/stats — sequences with active/completed/cancelled enrolment counts
 // ---------------------------------------------------------------------------
-router.get('/stats', async (req, res) => {
+router.get('/stats', requirePerm('sequences.view'), async (req: Request, res: Response) => {
   try {
     const tenantId = req.user!.tenantId;
 
@@ -90,7 +91,7 @@ router.get('/stats', async (req, res) => {
 // enrol a different tenant's contact into a sequence (IDOR). enrolContact()
 // itself also re-verifies the contact belongs to this tenant.
 // ---------------------------------------------------------------------------
-router.post('/enrol', async (req, res) => {
+router.post('/enrol', requirePerm('sequences.enrol'), async (req: Request, res: Response) => {
   const tenantId = req.user!.tenantId;
   const { contactId, sequenceName, startAfterMinutes } = req.body;
 
@@ -113,9 +114,9 @@ router.post('/enrol', async (req, res) => {
 // Scoped to the caller's tenant — without this, any authenticated user of any
 // tenant could cancel another tenant's enrolment by GUID (IDOR).
 // ---------------------------------------------------------------------------
-router.delete('/enrolments/:id', async (req, res) => {
+router.delete('/enrolments/:id', requirePerm('sequences.enrolments.remove'), async (req: Request, res: Response) => {
   const tenantId = req.user!.tenantId;
-  const { id } = req.params;
+  const id = req.params.id as string;
 
   const cancelled = await cancelEnrolment(id, tenantId);
   if (!cancelled) {
@@ -129,7 +130,7 @@ router.delete('/enrolments/:id', async (req, res) => {
 // ---------------------------------------------------------------------------
 // GET /sequences/enrolments?contactId= — get active enrolments for a contact
 // ---------------------------------------------------------------------------
-router.get('/enrolments', async (req, res) => {
+router.get('/enrolments', requirePerm('sequences.view'), async (req: Request, res: Response) => {
   const { contactId } = req.query as Record<string, string>;
 
   if (!contactId) {
@@ -144,9 +145,9 @@ router.get('/enrolments', async (req, res) => {
 // ---------------------------------------------------------------------------
 // PATCH /sequences/:id — update a sequence (name, steps, isActive)
 // ---------------------------------------------------------------------------
-router.patch('/:id', async (req, res) => {
+router.patch('/:id', requirePerm('sequences.manage'), async (req: Request, res: Response) => {
   const tenantId = req.user!.tenantId;
-  const { id } = req.params;
+  const id = req.params.id as string;
   const { name, steps, isActive } = req.body as {
     name?: string;
     steps?: unknown[];
