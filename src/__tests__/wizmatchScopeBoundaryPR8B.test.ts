@@ -238,6 +238,12 @@ describe('PR 8B scope boundary — PR 9/10 must not have started', () => {
       + 'Smartlead/reply-ingestion data of any kind. Renumbered from 45 to 46 during merge — 45 was '
       + 'already claimed by the roles/role_permissions PR. Unrelated to PR 9/10 (Smartlead / reply '
       + 'ingestion).',
+    47: 'invoices — scopes the invoiceNumber uniqueness constraint to (tenant_id, invoice_number) instead '
+      + 'of a bare global UNIQUE, closing a cross-tenant collision-risk class on an existing column. Drops '
+      + 'the column-level UNIQUE constraint and adds a compound UNIQUE INDEX only; no new table, no ALTER '
+      + 'of any other column, no data backfill. Carries no outreach, sequence, reply, or '
+      + 'Smartlead/reply-ingestion data of any kind. Owner-approved. Unrelated to PR 9/10 (Smartlead / '
+      + 'reply ingestion).',
   };
 
   it('every migration past 0037 is in the reviewed out-of-scope allowlist', () => {

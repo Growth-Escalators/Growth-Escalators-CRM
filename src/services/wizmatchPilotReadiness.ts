@@ -425,10 +425,17 @@ export function assessWizmatchPilotReadiness(inputs: PilotReadinessInputs): Pilo
     // existing users/tenants tables), no ALTER of any existing table.
     // Renumbered from 45 to 46 during merge — 45 was already claimed by the
     // roles/role_permissions PR by the time this one merged.
+    // 47 = invoices — scopes the invoiceNumber uniqueness constraint to
+    // (tenant_id, invoice_number) instead of a bare global UNIQUE, closing
+    // the same cross-tenant collision-risk class #160 documented (and
+    // deliberately left open) for retainer_number. ALTER (drop column-level
+    // unique) + CREATE UNIQUE INDEX only, no data migration — existing
+    // invoice_number values are already unique in practice (single-tenant
+    // history), so backfill isn't needed. Explicitly authorised by Jatin.
     // Bump this ONLY alongside an explicit authorisation for the migration in
     // question — the point of the mark is that an unreviewed migration showing
     // up in a hardening pass still gets surfaced.
-    const AUTHORISED_MIGRATION_HIGH_WATER_MARK = 46;
+    const AUTHORISED_MIGRATION_HIGH_WATER_MARK = 47;
     const unauthorised = sqlFiles
       .map((f) => ({ file: f, idx: parseInt(f.slice(0, 4), 10) }))
       .filter((m) => Number.isFinite(m.idx) && m.idx > AUTHORISED_MIGRATION_HIGH_WATER_MARK)
