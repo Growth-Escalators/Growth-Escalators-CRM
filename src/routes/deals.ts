@@ -3,6 +3,7 @@ import { Router } from 'express';
 import { eq, and, sql } from 'drizzle-orm';
 import { db, pool, deals, contacts, pipelines } from '../db/index';
 import { findPipelineStageOutcome } from '../services/pipelineStages';
+import { requirePerm } from '../middleware/requirePerm';
 
 const router = Router();
 
@@ -19,7 +20,7 @@ async function getPipelineStageOutcome(tenantId: string, pipelineId: string | nu
 // ---------------------------------------------------------------------------
 // GET /deals — list deals with optional filters
 // ---------------------------------------------------------------------------
-router.get('/', async (req, res) => {
+router.get('/', requirePerm('deals.view'), async (req, res) => {
   const tenantId = req.user!.tenantId;
   const { stage, contactId, serviceType, pipelineId, assignedTo, limit = '100', offset = '0', includeArchived } = req.query as Record<string, string>;
 
@@ -64,7 +65,7 @@ router.get('/', async (req, res) => {
 // ---------------------------------------------------------------------------
 // POST /deals — create a deal
 // ---------------------------------------------------------------------------
-router.post('/', async (req, res) => {
+router.post('/', requirePerm('deals.create'), async (req, res) => {
   try {
   const tenantId = req.user!.tenantId;
   const { contactId, title, stage, value, dealValue, serviceType, pipelineId, assignedTo, notes, lostReason, wonNotes, metadata, source, probability } = req.body;
@@ -127,9 +128,9 @@ router.post('/', async (req, res) => {
 // Auto-sets closedAt when the target pipeline stage has a terminal outcome
 // Updates contact lastActivityAt on stage change
 // ---------------------------------------------------------------------------
-router.patch('/:id', async (req, res) => {
+router.patch('/:id', requirePerm('deals.edit'), async (req, res) => {
   try {
-  const { id } = req.params;
+  const { id } = req.params as { id: string };
   const tenantId = req.user!.tenantId;
   const { stage, value, dealValue, lostReason, wonNotes, closedAt, metadata, assignedTo, pipelineId, notes, source, probability, expectedCloseDate } = req.body;
 
@@ -275,7 +276,7 @@ router.patch('/:id', async (req, res) => {
 // POST /deals/bulk-create — create deals for multiple contacts
 // Skips contacts already in the same pipeline
 // ---------------------------------------------------------------------------
-router.post('/bulk-create', async (req, res) => {
+router.post('/bulk-create', requirePerm('deals.bulk'), async (req, res) => {
   try {
   const tenantId = req.user!.tenantId;
   const { contactIds, stage, serviceType, pipelineId, assignedTo, dealValue, notes, title = 'Manual Pipeline Entry' } = req.body as {
@@ -341,7 +342,7 @@ router.post('/bulk-create', async (req, res) => {
 // jsonb_set so other metadata keys are preserved. Runs as a separate SQL pass
 // because Drizzle's set-builder doesn't support partial jsonb mutation.
 // ---------------------------------------------------------------------------
-router.post('/bulk-update', async (req, res) => {
+router.post('/bulk-update', requirePerm('deals.bulk'), async (req, res) => {
   try {
   const tenantId = req.user!.tenantId;
   const { dealIds, updates: upd } = req.body as {
@@ -397,7 +398,7 @@ router.post('/bulk-update', async (req, res) => {
 // POST /deals/:id/add-or-update — upsert deal for contact in pipeline
 // If contact already has a deal in this pipeline, update it; else create new
 // ---------------------------------------------------------------------------
-router.post('/add-or-update', async (req, res) => {
+router.post('/add-or-update', requirePerm('deals.bulk'), async (req, res) => {
   try {
   const tenantId = req.user!.tenantId;
   const { contactId, pipelineId, stage, assignedTo, dealValue, notes, title = 'Opportunity' } = req.body;
@@ -450,7 +451,7 @@ router.post('/add-or-update', async (req, res) => {
 // ---------------------------------------------------------------------------
 // GET /deals/export — CSV export of all deals
 // ---------------------------------------------------------------------------
-router.get('/export', async (req, res) => {
+router.get('/export', requirePerm('deals.export'), async (req, res) => {
   try {
     const tenantId = req.user!.tenantId;
     const rows = await db.execute(sql`
@@ -486,8 +487,8 @@ router.get('/export', async (req, res) => {
 // ---------------------------------------------------------------------------
 // GET /deals/:id — fetch single deal with contact + pipeline info
 // ---------------------------------------------------------------------------
-router.get('/:id', async (req, res) => {
-  const { id } = req.params;
+router.get('/:id', requirePerm('deals.view'), async (req, res) => {
+  const { id } = req.params as { id: string };
   const tenantId = req.user!.tenantId;
   try {
     const result = await pool.query(`
@@ -514,8 +515,8 @@ router.get('/:id', async (req, res) => {
 // ---------------------------------------------------------------------------
 // GET /deals/:id/activities — fetch activity timeline for a deal
 // ---------------------------------------------------------------------------
-router.get('/:id/activities', async (req, res) => {
-  const { id } = req.params;
+router.get('/:id/activities', requirePerm('deals.view'), async (req, res) => {
+  const { id } = req.params as { id: string };
   const tenantId = req.user!.tenantId;
   try {
     const result = await pool.query(`
@@ -533,8 +534,8 @@ router.get('/:id/activities', async (req, res) => {
 // ---------------------------------------------------------------------------
 // POST /deals/:id/activities — add a note or manual activity to a deal
 // ---------------------------------------------------------------------------
-router.post('/:id/activities', async (req, res) => {
-  const { id } = req.params;
+router.post('/:id/activities', requirePerm('deals.edit'), async (req, res) => {
+  const { id } = req.params as { id: string };
   const tenantId = req.user!.tenantId;
   const { note, activityType = 'note' } = req.body as { note?: string; activityType?: string };
   if (!note?.trim()) { res.status(400).json({ error: 'note is required' }); return; }

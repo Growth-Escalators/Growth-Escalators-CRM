@@ -3,6 +3,15 @@ import { db, messages, contacts, contactChannels, waTemplates } from '../db/inde
 import { eq, and, desc, sql } from 'drizzle-orm';
 import type { Server as SocketServer } from 'socket.io';
 import { DEFAULT_TENANT_SLUG } from '../config/constants';
+import { requirePerm } from '../middleware/requirePerm';
+
+// Permission wiring note (see PR description): only the read/list routes
+// below are gated on 'inbox.view' — that is the ONLY inbox permission key
+// in the registry today. POST /conversations/:contactId/send and
+// /send-template are real outbound WhatsApp sends, and POST
+// /conversations/:contactId/read is a state mutation (marks messages read)
+// — none of these are "viewing", so none are force-fit onto inbox.view.
+// They are left ungated pending a future inbox.send / inbox.* key.
 
 // There is no per-tenant WhatsApp Business number yet — every send goes out
 // through GE's own META_PHONE_NUMBER_ID/META_ACCESS_TOKEN. Until per-tenant
@@ -36,7 +45,7 @@ export function emitStatusUpdate(contactId: string, waMessageId: string, status:
 // ---------------------------------------------------------------------------
 // GET /api/inbox/conversations
 // ---------------------------------------------------------------------------
-router.get('/conversations', async (req: Request, res: Response) => {
+router.get('/conversations', requirePerm('inbox.view'), async (req: Request, res: Response) => {
   const tenantId = req.user!.tenantId;
 
   try {
@@ -85,7 +94,7 @@ router.get('/conversations', async (req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 // GET /api/inbox/conversations/:contactId/messages
 // ---------------------------------------------------------------------------
-router.get('/conversations/:contactId/messages', async (req: Request, res: Response) => {
+router.get('/conversations/:contactId/messages', requirePerm('inbox.view'), async (req: Request, res: Response) => {
   const tenantId = req.user!.tenantId;
   const contactId = req.params.contactId as string;
 
@@ -256,7 +265,7 @@ router.post('/conversations/:contactId/read', async (req: Request, res: Response
 // ---------------------------------------------------------------------------
 // GET /api/inbox/templates — list approved WA templates
 // ---------------------------------------------------------------------------
-router.get('/templates', async (req: Request, res: Response) => {
+router.get('/templates', requirePerm('inbox.view'), async (req: Request, res: Response) => {
   const tenantId = req.user!.tenantId;
   try {
     const rows = await db.select().from(waTemplates)
@@ -270,7 +279,7 @@ router.get('/templates', async (req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 // GET /api/inbox/unread-count — total unread across all conversations
 // ---------------------------------------------------------------------------
-router.get('/unread-count', async (req: Request, res: Response) => {
+router.get('/unread-count', requirePerm('inbox.view'), async (req: Request, res: Response) => {
   const tenantId = req.user!.tenantId;
   try {
     const result = await db.execute(sql`

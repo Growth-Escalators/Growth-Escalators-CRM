@@ -14,6 +14,7 @@
 
 import { Router, Request, Response } from 'express';
 import { requireAuth } from '../middleware/auth';
+import { requirePerm } from '../middleware/requirePerm';
 import {
   lookupShortLinkDb,
   listShortLinksDb,
@@ -44,7 +45,7 @@ function toApi(row: ShortLinkRow) {
 }
 
 // ── GET /api/links ────────────────────────────────────────────────────────
-router.get('/', async (req: Request, res: Response) => {
+router.get('/', requirePerm('links.view'), async (req: Request, res: Response) => {
   try {
     const rows = await listShortLinksDb(req.user!.tenantId);
     res.json({ ok: true, count: rows.length, links: rows.map(toApi) });
@@ -55,7 +56,7 @@ router.get('/', async (req: Request, res: Response) => {
 });
 
 // ── GET /api/links/:slug ──────────────────────────────────────────────────
-router.get('/:slug', async (req: Request, res: Response): Promise<void> => {
+router.get('/:slug', requirePerm('links.view'), async (req: Request, res: Response): Promise<void> => {
   const slug = String(req.params.slug || '');
   // Stats endpoint shares the same path pattern; route below handles /:slug/stats explicitly.
   try {
@@ -68,7 +69,7 @@ router.get('/:slug', async (req: Request, res: Response): Promise<void> => {
 });
 
 // ── GET /api/links/:slug/stats ────────────────────────────────────────────
-router.get('/:slug/stats', async (req: Request, res: Response): Promise<void> => {
+router.get('/:slug/stats', requirePerm('links.view'), async (req: Request, res: Response): Promise<void> => {
   const slug = String(req.params.slug || '');
   try {
     const hit = await lookupShortLinkDb(req.user!.tenantId, slug);
@@ -92,7 +93,7 @@ router.get('/:slug/stats', async (req: Request, res: Response): Promise<void> =>
 });
 
 // ── POST /api/links/create ────────────────────────────────────────────────
-router.post('/create', async (req: Request, res: Response): Promise<void> => {
+router.post('/create', requirePerm('links.manage'), async (req: Request, res: Response): Promise<void> => {
   const { destinationUrl, longUrl, customSlug, slug, description, title, tags } = req.body as {
     destinationUrl?: string; longUrl?: string;
     customSlug?: string; slug?: string;
@@ -133,7 +134,7 @@ router.post('/create', async (req: Request, res: Response): Promise<void> => {
 });
 
 // ── PATCH /api/links/:slug ────────────────────────────────────────────────
-router.patch('/:slug', async (req: Request, res: Response): Promise<void> => {
+router.patch('/:slug', requirePerm('links.manage'), async (req: Request, res: Response): Promise<void> => {
   const slug = String(req.params.slug || '');
   const { destination, longUrl, description, title, tags } = req.body as {
     destination?: string; longUrl?: string;
@@ -154,7 +155,7 @@ router.patch('/:slug', async (req: Request, res: Response): Promise<void> => {
 });
 
 // ── DELETE /api/links/:slug ───────────────────────────────────────────────
-router.delete('/:slug', async (req: Request, res: Response): Promise<void> => {
+router.delete('/:slug', requirePerm('links.manage'), async (req: Request, res: Response): Promise<void> => {
   const slug = String(req.params.slug || '');
   try {
     const deleted = await deleteShortLinkDb(req.user!.tenantId, slug);

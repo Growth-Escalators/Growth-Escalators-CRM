@@ -5,13 +5,14 @@ import { db, contacts, contactChannels, sequences, sequenceEnrolments, contactNo
 import { buildContactSearchCondition } from '../services/contactSearch';
 import { resolveWizmatchLinkage } from '../modules/outreach/wizmatchLinkage';
 import { evaluateWizmatchOutreachGate, shouldBlock } from '../modules/outreach/outreachGate';
+import { requirePerm } from '../middleware/requirePerm';
 
 const router = Router();
 
 // ---------------------------------------------------------------------------
 // GET /contacts — list contacts with filters + enriched phone/email
 // ---------------------------------------------------------------------------
-router.get('/', async (req, res) => {
+router.get('/', requirePerm('contacts.view'), async (req, res) => {
   try {
   const tenantId = req.user!.tenantId;
   const {
@@ -130,7 +131,7 @@ router.get('/', async (req, res) => {
 // ---------------------------------------------------------------------------
 // GET /contacts/counts — single-query smart list counts (must be before /:id)
 // ---------------------------------------------------------------------------
-router.get('/counts', async (req, res) => {
+router.get('/counts', requirePerm('contacts.view'), async (req, res) => {
   try {
     const tenantId = req.user!.tenantId;
     const result = await db.execute(sql`
@@ -153,7 +154,7 @@ router.get('/counts', async (req, res) => {
 // ---------------------------------------------------------------------------
 // GET /contacts/tags — list all unique tags across contacts (must be before /:id)
 // ---------------------------------------------------------------------------
-router.get('/tags', async (req, res) => {
+router.get('/tags', requirePerm('contacts.view'), async (req, res) => {
   try {
     const tenantId = req.user!.tenantId;
     const result = await db.execute(sql`
@@ -172,8 +173,8 @@ router.get('/tags', async (req, res) => {
 // ---------------------------------------------------------------------------
 // GET /contacts/:id/conversation — unified timeline
 // ---------------------------------------------------------------------------
-router.get('/:id/conversation', async (req, res) => {
-  const { id } = req.params;
+router.get('/:id/conversation', requirePerm('contacts.view'), async (req, res) => {
+  const { id } = req.params as { id: string };
   const tenantId = req.user!.tenantId;
   try {
   // Verify contact belongs to tenant
@@ -231,9 +232,9 @@ router.get('/:id/conversation', async (req, res) => {
 // ---------------------------------------------------------------------------
 // GET /contacts/:id/notes
 // ---------------------------------------------------------------------------
-router.get('/:id/notes', async (req, res) => {
+router.get('/:id/notes', requirePerm('contacts.view'), async (req, res) => {
   try {
-  const { id } = req.params;
+  const { id } = req.params as { id: string };
   const tenantId = req.user!.tenantId;
   const notes = await db.select().from(contactNotes)
     .where(and(eq(contactNotes.contactId, id), eq(contactNotes.tenantId, tenantId)))
@@ -248,9 +249,9 @@ router.get('/:id/notes', async (req, res) => {
 // ---------------------------------------------------------------------------
 // POST /contacts/:id/notes
 // ---------------------------------------------------------------------------
-router.post('/:id/notes', async (req, res) => {
+router.post('/:id/notes', requirePerm('contacts.edit'), async (req, res) => {
   try {
-  const { id } = req.params;
+  const { id } = req.params as { id: string };
   const tenantId = req.user!.tenantId;
   const { content, createdBy = 'jatin' } = req.body;
   if (!content) { res.status(400).json({ error: 'content is required' }); return; }
@@ -266,9 +267,9 @@ router.post('/:id/notes', async (req, res) => {
 // ---------------------------------------------------------------------------
 // PATCH /contacts/:id/notes/:noteId
 // ---------------------------------------------------------------------------
-router.patch('/:id/notes/:noteId', async (req, res) => {
+router.patch('/:id/notes/:noteId', requirePerm('contacts.edit'), async (req, res) => {
   try {
-  const { id, noteId } = req.params;
+  const { id, noteId } = req.params as { id: string; noteId: string };
   const tenantId = req.user!.tenantId;
   const { content } = req.body;
   if (!content) { res.status(400).json({ error: 'content is required' }); return; }
@@ -288,9 +289,9 @@ router.patch('/:id/notes/:noteId', async (req, res) => {
 // ---------------------------------------------------------------------------
 // DELETE /contacts/:id/notes/:noteId
 // ---------------------------------------------------------------------------
-router.delete('/:id/notes/:noteId', async (req, res) => {
+router.delete('/:id/notes/:noteId', requirePerm('contacts.edit'), async (req, res) => {
   try {
-  const { id, noteId } = req.params;
+  const { id, noteId } = req.params as { id: string; noteId: string };
   const tenantId = req.user!.tenantId;
   // Scope by tenant too — otherwise noteId (+ contactId) alone lets any
   // authenticated user of ANY tenant delete another tenant's note.
@@ -308,9 +309,9 @@ router.delete('/:id/notes/:noteId', async (req, res) => {
 // ---------------------------------------------------------------------------
 // GET /contacts/:id — single contact with all channels
 // ---------------------------------------------------------------------------
-router.get('/:id', async (req, res) => {
+router.get('/:id', requirePerm('contacts.view'), async (req, res) => {
   try {
-  const { id } = req.params;
+  const { id } = req.params as { id: string };
   const tenantId = req.user!.tenantId;
 
   const contactRows = await db.select().from(contacts).where(and(eq(contacts.id, id), eq(contacts.tenantId, tenantId))).limit(1);
@@ -359,9 +360,9 @@ router.get('/:id', async (req, res) => {
 // ---------------------------------------------------------------------------
 // GET /contacts/:id/channels
 // ---------------------------------------------------------------------------
-router.get('/:id/channels', async (req, res) => {
+router.get('/:id/channels', requirePerm('contacts.view'), async (req, res) => {
   try {
-  const { id } = req.params;
+  const { id } = req.params as { id: string };
   const tenantId = req.user!.tenantId;
 
   // Verify the contact belongs to the caller's tenant before returning its
@@ -384,7 +385,7 @@ router.get('/:id/channels', async (req, res) => {
 // ---------------------------------------------------------------------------
 // POST /contacts — create contact
 // ---------------------------------------------------------------------------
-router.post('/', async (req, res) => {
+router.post('/', requirePerm('contacts.create'), async (req, res) => {
   try {
   const tenantId = req.user!.tenantId;
   const { firstName, lastName, companyName, source, sourceDetail, assignedTo, metadata, tags } = req.body;
@@ -412,9 +413,9 @@ router.post('/', async (req, res) => {
 // ---------------------------------------------------------------------------
 // PATCH /contacts/:id — update contact
 // ---------------------------------------------------------------------------
-router.patch('/:id', async (req, res) => {
+router.patch('/:id', requirePerm('contacts.edit'), async (req, res) => {
   try {
-  const { id } = req.params;
+  const { id } = req.params as { id: string };
   const tenantId = req.user!.tenantId;
   const {
     status,
@@ -474,8 +475,8 @@ router.patch('/:id', async (req, res) => {
 // ---------------------------------------------------------------------------
 // POST /contacts/:id/channels — add a channel
 // ---------------------------------------------------------------------------
-router.post('/:id/channels', async (req, res) => {
-  const { id } = req.params;
+router.post('/:id/channels', requirePerm('contacts.edit'), async (req, res) => {
+  const { id } = req.params as { id: string };
   const tenantId = req.user!.tenantId;
   const { channelType, channelValue, isPrimary } = req.body;
 
@@ -504,7 +505,7 @@ router.post('/:id/channels', async (req, res) => {
 // POST /contacts/bulk-tag
 // Body: { contactIds: string[], tags: string[], mode?: 'add' | 'replace' | 'remove' }
 // ---------------------------------------------------------------------------
-router.post('/bulk-tag', async (req, res) => {
+router.post('/bulk-tag', requirePerm('contacts.bulk'), async (req, res) => {
   try {
   const tenantId = req.user!.tenantId;
   const { contactIds, tags, mode = 'add' } = req.body as {
@@ -556,7 +557,7 @@ router.post('/bulk-tag', async (req, res) => {
 // POST /contacts/bulk-assign
 // Body: { contactIds: string[], assignedTo: string }
 // ---------------------------------------------------------------------------
-router.post('/bulk-assign', async (req, res) => {
+router.post('/bulk-assign', requirePerm('contacts.bulk'), async (req, res) => {
   try {
   const tenantId = req.user!.tenantId;
   const { contactIds, assignedTo } = req.body as { contactIds?: string[]; assignedTo?: string };
@@ -591,7 +592,7 @@ router.post('/bulk-assign', async (req, res) => {
 // POST /contacts/bulk-delete — soft delete (status = 'deleted')
 // Body: { contactIds: string[] }
 // ---------------------------------------------------------------------------
-router.post('/bulk-delete', async (req, res) => {
+router.post('/bulk-delete', requirePerm('contacts.delete'), async (req, res) => {
   try {
   const tenantId = req.user!.tenantId;
   const { contactIds } = req.body as { contactIds?: string[] };
@@ -621,7 +622,7 @@ router.post('/bulk-delete', async (req, res) => {
 // ---------------------------------------------------------------------------
 // POST /contacts/bulk-email — send email template to selected contacts
 // ---------------------------------------------------------------------------
-router.post('/bulk-email', async (req, res) => {
+router.post('/bulk-email', requirePerm('contacts.bulk'), async (req, res) => {
   try {
     const tenantId = req.user!.tenantId;
     // Master automated-email kill-switch: blasting the contact list is blocked
@@ -741,7 +742,7 @@ router.post('/bulk-email', async (req, res) => {
 // POST /contacts/export — returns CSV
 // Body: { contactIds?: string[] } — if empty, exports all contacts for tenant
 // ---------------------------------------------------------------------------
-router.post('/export', async (req, res) => {
+router.post('/export', requirePerm('contacts.export'), async (req, res) => {
   try {
   const tenantId = req.user!.tenantId;
   const { contactIds } = req.body as { contactIds?: string[] };
@@ -834,7 +835,7 @@ router.post('/export', async (req, res) => {
 // POST /contacts/import — import contacts from CSV text
 // Expects JSON body: { csv: "Name,Email,Phone,Company\nJohn,john@x.com,..." }
 // ---------------------------------------------------------------------------
-router.post('/import', async (req, res) => {
+router.post('/import', requirePerm('contacts.import'), async (req, res) => {
   try {
     const tenantId = req.user!.tenantId;
     const { csv } = req.body as { csv?: string };
@@ -939,7 +940,7 @@ router.post('/import', async (req, res) => {
 // POST /contacts/bulk-sequence — enrol contacts in a sequence by name
 // Body: { contactIds: string[], sequenceName: string }
 // ---------------------------------------------------------------------------
-router.post('/bulk-sequence', async (req, res) => {
+router.post('/bulk-sequence', requirePerm('contacts.bulk'), async (req, res) => {
   try {
   const tenantId = req.user!.tenantId;
   const { contactIds, sequenceName } = req.body as { contactIds?: string[]; sequenceName?: string };

@@ -19,6 +19,7 @@ import { randomUUID } from 'crypto';
 import { eq, and } from 'drizzle-orm';
 import { db, tasks, pool } from '../db/index';
 import logger from '../utils/logger';
+import { requirePerm } from '../middleware/requirePerm';
 
 const router = Router();
 
@@ -56,7 +57,10 @@ async function loadTaskForTenant(taskId: string, tenantId: string): Promise<bool
 // ---------------------------------------------------------------------------
 // POST /:id/attachments  (multipart/form-data: file OR url+label)
 // ---------------------------------------------------------------------------
-router.post('/:id/attachments', upload.single('file'), async (req: Request, res: Response) => {
+// Gated under 'tasks.edit' (not a dedicated attachments key) — see
+// src/config/permissions.ts: tasks.edit's label explicitly covers
+// "attachments" alongside comments/task edits.
+router.post('/:id/attachments', requirePerm('tasks.edit'), upload.single('file'), async (req: Request, res: Response) => {
   try {
     const tenantId = req.user!.tenantId;
     const userId = req.user!.id;
@@ -133,7 +137,7 @@ router.post('/:id/attachments', upload.single('file'), async (req: Request, res:
 // ---------------------------------------------------------------------------
 // GET /:id/attachments — list all attachments for a task
 // ---------------------------------------------------------------------------
-router.get('/:id/attachments', async (req: Request, res: Response) => {
+router.get('/:id/attachments', requirePerm('tasks.view'), async (req: Request, res: Response) => {
   try {
     const tenantId = req.user!.tenantId;
     const taskId = req.params.id as string;
@@ -161,7 +165,7 @@ router.get('/:id/attachments', async (req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 // GET /:id/attachments/:attachmentId/download — stream the file
 // ---------------------------------------------------------------------------
-router.get('/:id/attachments/:attachmentId/download', async (req: Request, res: Response) => {
+router.get('/:id/attachments/:attachmentId/download', requirePerm('tasks.view'), async (req: Request, res: Response) => {
   try {
     const tenantId = req.user!.tenantId;
     const taskId = req.params.id as string;
@@ -215,7 +219,7 @@ router.get('/:id/attachments/:attachmentId/download', async (req: Request, res: 
 // ---------------------------------------------------------------------------
 // DELETE /:id/attachments/:attachmentId
 // ---------------------------------------------------------------------------
-router.delete('/:id/attachments/:attachmentId', async (req: Request, res: Response) => {
+router.delete('/:id/attachments/:attachmentId', requirePerm('tasks.edit'), async (req: Request, res: Response) => {
   try {
     const tenantId = req.user!.tenantId;
     const taskId = req.params.id as string;

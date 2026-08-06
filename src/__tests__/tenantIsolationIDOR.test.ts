@@ -67,6 +67,21 @@ vi.mock('../modules/outreach/outreachGate', () => ({
   shouldBlock: vi.fn().mockReturnValue(false),
 }));
 
+// sequences.ts now runs every route through requirePerm(...), which (via
+// getEffectivePermissions) issues its own db.select() before the handler
+// ever runs. This suite is about tenant-scoping/IDOR, not the separate
+// permission gate (that's covered by sequencesPermissions.test.ts) — grant
+// every permission unconditionally so the requirePerm check never consumes
+// one of this file's queued mockSelect.mockReturnValueOnce(...) values
+// (which are ordered to match each test's OWN handler-level queries) and
+// always calls next() like a real granted request would.
+vi.mock('../services/permissionResolver', async () => {
+  const { ALL_PERMISSIONS } = await import('../config/permissions');
+  return {
+    getEffectivePermissions: async () => new Set(ALL_PERMISSIONS),
+  };
+});
+
 import messagesRouter from '../routes/messages';
 import sequencesRouter from '../routes/sequences';
 import permissionsRouter from '../routes/permissions';

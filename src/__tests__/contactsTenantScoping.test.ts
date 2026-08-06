@@ -43,6 +43,18 @@ const mockSelect = vi.fn();
 const mockUpdate = vi.fn();
 const mockDelete = vi.fn();
 
+// These tests exercise the FULL middleware stack (see invokeRoute below),
+// which now includes the requirePerm(...) gate added on every route in
+// src/routes/contacts.ts. That gate is out of scope for this file (it has
+// its own dedicated coverage in contactsPermissionGating.test.ts) — mock
+// the resolver directly so every request is treated as already holding
+// whatever permission the route requires, keeping these tests focused on
+// tenant-scoping and leaving the `mockSelect`/`mockUpdate`/`mockDelete`
+// call sequences below undisturbed by permission-resolution queries.
+vi.mock('../services/permissionResolver', () => ({
+  getEffectivePermissions: vi.fn().mockResolvedValue(new Set(['contacts.view', 'contacts.edit'])),
+}));
+
 import contactsRouter from '../routes/contacts';
 
 const dialect = new PgDialect();

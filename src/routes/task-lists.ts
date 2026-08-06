@@ -2,6 +2,7 @@ import { Router, type Request, type Response } from 'express';
 import { and, eq, sql } from 'drizzle-orm';
 import { db, taskLists, tasks } from '../db/index';
 import logger from '../utils/logger';
+import { requirePerm } from '../middleware/requirePerm';
 
 const router = Router();
 
@@ -35,8 +36,12 @@ db.execute(sql`ALTER TABLE "tasks" ADD COLUMN IF NOT EXISTS "list_id" uuid`).cat
 
 // ---------------------------------------------------------------------------
 // GET /api/task-lists — caller's own lists, with task count
+//
+// The registry only has one key for this whole file — 'tasks.lists.manage'
+// (no separate 'tasks.lists.view') — so every route here, including reads,
+// is gated on it.
 // ---------------------------------------------------------------------------
-router.get('/', async (req: Request, res: Response) => {
+router.get('/', requirePerm('tasks.lists.manage'), async (req: Request, res: Response) => {
   const tenantId = req.user!.tenantId;
   const ownerId = req.user!.id;
   try {
@@ -60,7 +65,7 @@ router.get('/', async (req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 // POST /api/task-lists — create
 // ---------------------------------------------------------------------------
-router.post('/', async (req: Request, res: Response) => {
+router.post('/', requirePerm('tasks.lists.manage'), async (req: Request, res: Response) => {
   const tenantId = req.user!.tenantId;
   const ownerId = req.user!.id;
   const { name } = req.body ?? {};
@@ -89,7 +94,7 @@ router.post('/', async (req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 // PATCH /api/task-lists/:id
 // ---------------------------------------------------------------------------
-router.patch('/:id', async (req: Request, res: Response) => {
+router.patch('/:id', requirePerm('tasks.lists.manage'), async (req: Request, res: Response) => {
   const tenantId = req.user!.tenantId;
   const ownerId = req.user!.id;
   const id = req.params.id as string;
@@ -138,7 +143,7 @@ router.patch('/:id', async (req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 // DELETE /api/task-lists/:id — also detaches tasks (sets list_id NULL)
 // ---------------------------------------------------------------------------
-router.delete('/:id', async (req: Request, res: Response) => {
+router.delete('/:id', requirePerm('tasks.lists.manage'), async (req: Request, res: Response) => {
   const tenantId = req.user!.tenantId;
   const ownerId = req.user!.id;
   const id = req.params.id as string;

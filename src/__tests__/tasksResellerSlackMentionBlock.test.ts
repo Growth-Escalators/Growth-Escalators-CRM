@@ -38,10 +38,16 @@ function makeReqRes(tenantSlug: string | undefined, body: Record<string, unknown
   return { req, res, jsonFn, statusFn };
 }
 
+// Grabs the LAST handler on the route (skipping requirePerm('tasks.create'),
+// which now sits in front of it) — this test is about the tenant-scoped
+// Slack DM logic, not permission gating (that's covered separately in
+// tasksPermissions.test.ts), so it deliberately bypasses the permission
+// middleware rather than mocking permissionResolver here too.
 async function invokePost(req: any, res: any) {
   const { default: router } = await import('../routes/tasks');
   const layer = router.stack.find((l: any) => l.route?.path === '/' && l.route?.methods?.post);
-  await layer!.route!.stack[0].handle(req, res, vi.fn());
+  const stack = layer!.route!.stack;
+  await stack[stack.length - 1].handle(req, res, vi.fn());
 }
 
 // Flush the microtask queue enough times for the fire-and-forget
