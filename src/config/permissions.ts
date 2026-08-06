@@ -257,9 +257,44 @@ export const PERMISSIONS = {
   'integrations.manage': { module: 'Integrations', label: 'Connect/disconnect/refresh integrations' },
 
   // ---------------------------------------------------------------------
+  // Tasks (src/routes/tasks.ts, taskAttachments.ts, task-lists.ts)
+  //
+  // Added after the initial registry pass, which read a fixed list of route
+  // files and happened to omit Tasks entirely — a genuine gap, not an
+  // intentional exclusion. 'tasks.edit' deliberately covers comments and
+  // attachments too (not just the task row itself): those are sub-resources
+  // edited in place on a task, the same way 'contacts.edit' already covers
+  // contact notes/channels rather than getting their own keys. Checklist
+  // (subtask) items follow the same logic. 'tasks.delete' is reserved for
+  // deleting the task record itself (DELETE /:id); comment/attachment
+  // deletion stays under 'tasks.edit' per its label. 'tasks.bulk' explicitly
+  // covers bulk delete (POST /bulk-delete), not just bulk status/patch.
+  // ---------------------------------------------------------------------
+  'tasks.view':    { module: 'Tasks', label: 'View tasks' },
+  'tasks.create':  { module: 'Tasks', label: 'Create tasks' },
+  'tasks.edit':    { module: 'Tasks', label: 'Edit tasks, comments, attachments' },
+  'tasks.delete':  { module: 'Tasks', label: 'Delete tasks', dangerous: true },
+  'tasks.bulk':    { module: 'Tasks', label: 'Bulk status/update/delete tasks' },
+  'tasks.lists.manage': { module: 'Tasks', label: 'Manage task lists/boards' },
+
+  // ---------------------------------------------------------------------
+  // Links (src/routes/links.ts — short-link management, not the public
+  // /s/:slug redirect, which is unauthenticated and unaffected)
+  //
+  // Same gap as Tasks above: links.ts was never read during the initial
+  // registry pass.
+  // ---------------------------------------------------------------------
+  'links.view':   { module: 'Links', label: 'View short links' },
+  'links.manage': { module: 'Links', label: 'Create/edit/delete short links' },
+
+  // ---------------------------------------------------------------------
   // Small additional modules kept only so the backfill script has a
   // complete target for every legacy PERMISSION_MAP key — see that script's
-  // MAPPING table. None of these are wired into a route by this PR.
+  // MAPPING table. 'discovery.view' and 'system_health.view' are still not
+  // wired into any route by this PR. 'inbox.view' IS now wired (GET/list
+  // routes in src/routes/inbox.ts only — see that file for the
+  // send/send-template/mark-read routes left ungated pending a future
+  // inbox.send-style key).
   // ---------------------------------------------------------------------
   'inbox.view':         { module: 'Inbox', label: 'View unified inbox / conversations' },
   'discovery.view':     { module: 'Discovery', label: 'View lead discovery search results' },

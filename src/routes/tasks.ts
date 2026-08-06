@@ -1,10 +1,11 @@
 import logger from '../utils/logger';
-import { Router } from 'express';
+import { Router, type Request, type Response } from 'express';
 import { eq, and, inArray, desc, asc, isNull, sql } from 'drizzle-orm';
 import { db, tasks, contacts, deals, taskChecklistItems, users, pool } from '../db/index';
 import { sendSlackDM, MEMBER_MAP } from '../services/slackService';
 import { DEFAULT_TENANT_SLUG } from '../config/constants';
 import { CRM_BASE_URL } from '../config/crmLinks';
+import { requirePerm } from '../middleware/requirePerm';
 
 const router = Router();
 
@@ -113,7 +114,7 @@ function normalizeStatus(raw: string | null | undefined): ColumnStatus {
 // ---------------------------------------------------------------------------
 // GET /api/tasks — list tasks for the tenant, optionally filtered
 // ---------------------------------------------------------------------------
-router.get('/', async (req, res) => {
+router.get('/', requirePerm('tasks.view'), async (req: Request, res: Response) => {
   const tenantId = req.user!.tenantId;
   const { status, assignedTo, listId, limit = '500', tag } = req.query as Record<string, string>;
 
@@ -225,7 +226,7 @@ router.get('/', async (req, res) => {
 // ---------------------------------------------------------------------------
 // GET /api/tasks/tag-counts — distinct tags + counts for the filter dropdown
 // ---------------------------------------------------------------------------
-router.get('/tag-counts', async (req, res) => {
+router.get('/tag-counts', requirePerm('tasks.view'), async (req: Request, res: Response) => {
   const tenantId = req.user!.tenantId;
   try {
     const r = await pool.query(
@@ -246,7 +247,7 @@ router.get('/tag-counts', async (req, res) => {
 // ---------------------------------------------------------------------------
 // POST /api/tasks — create a task
 // ---------------------------------------------------------------------------
-router.post('/', async (req, res) => {
+router.post('/', requirePerm('tasks.create'), async (req: Request, res: Response) => {
   try {
     const tenantId = req.user!.tenantId;
     const { title, description, assignedTo, dueAt, status, contactId, dealId, listId, priority, tags } = req.body ?? {};
@@ -315,10 +316,10 @@ router.post('/', async (req, res) => {
 // ---------------------------------------------------------------------------
 // PATCH /api/tasks/:id — update a task (used by drag-drop + tick + edit modal)
 // ---------------------------------------------------------------------------
-router.patch('/:id', async (req, res) => {
+router.patch('/:id', requirePerm('tasks.edit'), async (req: Request, res: Response) => {
   try {
     const tenantId = req.user!.tenantId;
-    const { id } = req.params;
+    const { id } = req.params as { id: string };
     const { title, description, assignedTo, dueAt, status, contactId, dealId, listId, priority, tags } = req.body ?? {};
 
     // Load existing assignedTo first so we can detect reassignment.
@@ -443,10 +444,10 @@ router.patch('/:id', async (req, res) => {
 // ---------------------------------------------------------------------------
 // DELETE /api/tasks/:id
 // ---------------------------------------------------------------------------
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', requirePerm('tasks.delete'), async (req: Request, res: Response) => {
   try {
     const tenantId = req.user!.tenantId;
-    const { id } = req.params;
+    const { id } = req.params as { id: string };
     const [deleted] = await db
       .delete(tasks)
       .where(and(eq(tasks.id, id), eq(tasks.tenantId, tenantId)))
@@ -466,7 +467,7 @@ router.delete('/:id', async (req, res) => {
 // ---------------------------------------------------------------------------
 // POST /api/tasks/bulk-status — reorder/bulk update (used to reconcile after drag)
 // ---------------------------------------------------------------------------
-router.post('/bulk-status', async (req, res) => {
+router.post('/bulk-status', requirePerm('tasks.bulk'), async (req: Request, res: Response) => {
   try {
     const tenantId = req.user!.tenantId;
     const { ids, status } = req.body ?? {};
@@ -501,10 +502,10 @@ async function loadTaskForTenant(id: string, tenantId: string) {
   return t ?? null;
 }
 
-router.get('/:id/checklist-items', async (req, res) => {
+router.get('/:id/checklist-items', requirePerm('tasks.view'), async (req: Request, res: Response) => {
   try {
     const tenantId = req.user!.tenantId;
-    const { id } = req.params;
+    const { id } = req.params as { id: string };
     const parent = await loadTaskForTenant(id, tenantId);
     if (!parent) {
       res.status(404).json({ error: 'task not found' });
@@ -522,10 +523,13 @@ router.get('/:id/checklist-items', async (req, res) => {
   }
 });
 
-router.post('/:id/checklist-items', async (req, res) => {
+// Checklist (subtask) items are gated under 'tasks.edit', not a dedicated
+// key — they're a detail of editing a task, the same way tasks.edit already
+// covers comments/attachments (see src/config/permissions.ts).
+router.post('/:id/checklist-items', requirePerm('tasks.edit'), async (req: Request, res: Response) => {
   try {
     const tenantId = req.user!.tenantId;
-    const { id } = req.params;
+    const { id } = req.params as { id: string };
     const { label } = req.body ?? {};
     if (typeof label !== 'string' || !label.trim()) {
       res.status(400).json({ error: 'label is required' });
@@ -553,10 +557,10 @@ router.post('/:id/checklist-items', async (req, res) => {
   }
 });
 
-router.patch('/:id/checklist-items/:itemId', async (req, res) => {
+router.patch('/:id/checklist-items/:itemId', requirePerm('tasks.edit'), async (req: Request, res: Response) => {
   try {
     const tenantId = req.user!.tenantId;
-    const { id, itemId } = req.params;
+    const { id, itemId } = req.params as { id: string; itemId: string };
     const parent = await loadTaskForTenant(id, tenantId);
     if (!parent) {
       res.status(404).json({ error: 'task not found' });
@@ -596,10 +600,10 @@ router.patch('/:id/checklist-items/:itemId', async (req, res) => {
   }
 });
 
-router.delete('/:id/checklist-items/:itemId', async (req, res) => {
+router.delete('/:id/checklist-items/:itemId', requirePerm('tasks.edit'), async (req: Request, res: Response) => {
   try {
     const tenantId = req.user!.tenantId;
-    const { id, itemId } = req.params;
+    const { id, itemId } = req.params as { id: string; itemId: string };
     const parent = await loadTaskForTenant(id, tenantId);
     if (!parent) {
       res.status(404).json({ error: 'task not found' });
@@ -623,7 +627,7 @@ router.delete('/:id/checklist-items/:itemId', async (req, res) => {
 // ---------------------------------------------------------------------------
 // POST /api/tasks/bulk-update — generalised bulk patch (status, priority, assignedTo)
 // ---------------------------------------------------------------------------
-router.post('/bulk-update', async (req, res) => {
+router.post('/bulk-update', requirePerm('tasks.bulk'), async (req: Request, res: Response) => {
   try {
     const tenantId = req.user!.tenantId;
     const { ids, patch } = (req.body ?? {}) as {
@@ -702,8 +706,11 @@ router.post('/bulk-update', async (req, res) => {
 
 // ---------------------------------------------------------------------------
 // POST /api/tasks/bulk-delete — delete many at once (hard delete; tasks has no deleted_at)
+// Gated under 'tasks.bulk' (not 'tasks.delete') — the registry's tasks.bulk
+// label explicitly covers "Bulk status/update/delete tasks"; 'tasks.delete'
+// is reserved for the single-task DELETE /:id route above.
 // ---------------------------------------------------------------------------
-router.post('/bulk-delete', async (req, res) => {
+router.post('/bulk-delete', requirePerm('tasks.bulk'), async (req: Request, res: Response) => {
   try {
     const tenantId = req.user!.tenantId;
     const { ids } = (req.body ?? {}) as { ids?: unknown };
@@ -745,8 +752,13 @@ router.post('/bulk-delete', async (req, res) => {
 
 // ---------------------------------------------------------------------------
 // GET /api/tasks/team-performance — admin-only per-member metrics
+// requirePerm('tasks.view') is the module-level gate; the pre-existing
+// inline role==='admin' check below is intentionally left in place as an
+// ADDITIONAL restriction on top of it — this endpoint exposes per-member
+// performance data, which is more sensitive than the general task list, and
+// there's no separate registry key for that narrower scope yet.
 // ---------------------------------------------------------------------------
-router.get('/team-performance', async (req, res) => {
+router.get('/team-performance', requirePerm('tasks.view'), async (req: Request, res: Response) => {
   try {
     if ((req.user?.role || 'staff') !== 'admin') {
       res.status(403).json({ error: 'forbidden' });
@@ -888,10 +900,10 @@ async function loadCommentParent(taskId: string, tenantId: string) {
   return t ?? null;
 }
 
-router.get('/:id/comments', async (req, res) => {
+router.get('/:id/comments', requirePerm('tasks.view'), async (req: Request, res: Response) => {
   try {
     const tenantId = req.user!.tenantId;
-    const { id } = req.params;
+    const { id } = req.params as { id: string };
     const parent = await loadCommentParent(id, tenantId);
     if (!parent) { res.status(404).json({ error: 'task not found' }); return; }
 
@@ -920,11 +932,11 @@ router.get('/:id/comments', async (req, res) => {
   }
 });
 
-router.post('/:id/comments', async (req, res) => {
+router.post('/:id/comments', requirePerm('tasks.edit'), async (req: Request, res: Response) => {
   try {
     const tenantId = req.user!.tenantId;
     const userId = req.user!.id;
-    const { id } = req.params;
+    const { id } = req.params as { id: string };
     const parent = await loadCommentParent(id, tenantId);
     if (!parent) { res.status(404).json({ error: 'task not found' }); return; }
 
@@ -995,11 +1007,21 @@ router.post('/:id/comments', async (req, res) => {
   }
 });
 
-router.patch('/:id/comments/:commentId', async (req, res) => {
+// OWNERSHIP-CHECK DECISION (see also the DELETE comment route below):
+// requirePerm('tasks.edit') answers "can this role edit tasks/comments at
+// all" — it does NOT know whose comment is being edited. The inline
+// author-only check further down is a DIFFERENT, narrower question ("is
+// this caller specifically the author of THIS comment") and is kept as an
+// ADDITIONAL guard on top of requirePerm, not replaced by it. Note this
+// route's existing rule is stricter than the delete route's: only the
+// original author may edit, with no admin override at all — that behavior
+// is preserved as-is; broadening it to allow admins is a separate decision
+// this PR does not make.
+router.patch('/:id/comments/:commentId', requirePerm('tasks.edit'), async (req: Request, res: Response) => {
   try {
     const tenantId = req.user!.tenantId;
     const userId = req.user!.id;
-    const { id, commentId } = req.params;
+    const { id, commentId } = req.params as { id: string; commentId: string };
     const parent = await loadCommentParent(id, tenantId);
     if (!parent) { res.status(404).json({ error: 'task not found' }); return; }
 
@@ -1035,12 +1057,18 @@ router.patch('/:id/comments/:commentId', async (req, res) => {
   }
 });
 
-router.delete('/:id/comments/:commentId', async (req, res) => {
+// Same ownership-check decision as the PATCH comment route above:
+// requirePerm('tasks.edit') gates "can this role touch comments at all";
+// the inline authorId/role check below is kept as an ADDITIONAL guard for
+// "but not someone else's comment unless you're also an admin". Both apply
+// — this is the exact `authorId !== userId && role !== 'admin'` pattern
+// found during the earlier audit, preserved unchanged.
+router.delete('/:id/comments/:commentId', requirePerm('tasks.edit'), async (req: Request, res: Response) => {
   try {
     const tenantId = req.user!.tenantId;
     const userId = req.user!.id;
     const role = req.user!.role || 'staff';
-    const { id, commentId } = req.params;
+    const { id, commentId } = req.params as { id: string; commentId: string };
     const parent = await loadCommentParent(id, tenantId);
     if (!parent) { res.status(404).json({ error: 'task not found' }); return; }
 
