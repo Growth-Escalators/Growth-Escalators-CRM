@@ -20,6 +20,16 @@
 //   Bug 2 (sequences never send): sequenceWorker.ts enqueues `sequence_step`
 //   jobs, but nothing drained that job type — see the new
 //   `processSequenceStepJob` / `drainSequenceStepsOnce` tests.
+//
+// 2026-08-06 — a third gap closed in this file: `hot_lead_alert` jobs
+// (enqueued by bookingService.ts for every hot-tier booking) also had no
+// consumer. Unlike the still-forbidden n8n types, this one's payload is
+// fully self-describing and it creates no records — see the dated note in
+// jobDrainer.ts's own header for why it moved out of the "cannot be read,
+// do not guess" bucket. The 'scope discipline' test below now allows it,
+// and the tests further down cover the staleness window (the real hazard:
+// a backlog going back to 2026-03 must NOT fire months of alerts at once)
+// and the Slack-send failure isolation.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
@@ -78,6 +88,9 @@ vi.mock('../services/jobQueue', () => ({
 vi.mock('../services/emailService', () => ({
   sendSequenceEmail: vi.fn(),
   automatedEmailsEnabled: vi.fn(),
+}));
+vi.mock('../services/slackService', () => ({
+  sendSlackMessage: vi.fn(),
 }));
 
 // The real production shape: { eventId, data: { responseId, fields: [...] } }
@@ -225,22 +238,27 @@ describe('isJobDrainerEnabled — fail closed', () => {
 });
 
 describe('scope discipline', () => {
-  it('only ever asks the queue for form_submit and sequence_step jobs', async () => {
-    // The other queued types (inbound_wa, chatwoot_event, booking_processed,
-    // hot_lead_alert, facebook_lead_failed) were handled by n8n logic that
-    // does not exist in this repo. Widening to those without establishing
-    // that logic would risk creating wrong records from real customer data.
-    // sequence_step is different: its processing logic (sendSequenceEmail)
-    // already exists in this repo — see processSequenceStepJob.
+  it('only ever asks the queue for form_submit, sequence_step, and hot_lead_alert jobs', async () => {
+    // The remaining queued types (inbound_wa, chatwoot_event,
+    // booking_processed, facebook_lead_failed) were handled by n8n logic
+    // that does not exist in this repo. Widening to those without
+    // establishing that logic would risk creating wrong records from real
+    // customer data. sequence_step and hot_lead_alert are both different:
+    // their processing logic already exists in this repo or is trivial to
+    // derive from a self-describing payload, and neither creates a record —
+    // see processSequenceStepJob and processHotLeadAlertJob respectively.
+    // hot_lead_alert moved from forbidden to allowed on 2026-08-06 for that
+    // reason (see the dated note in jobDrainer.ts's own header).
     const fs = await import('node:fs');
     const path = await import('node:path');
     const src = fs.readFileSync(path.join(__dirname, '..', 'services', 'jobDrainer.ts'), 'utf8');
     const bare = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
     const calls = bare.match(/getPendingJobs\([^)]*\)/g) ?? [];
-    expect(calls).toHaveLength(2);
+    expect(calls).toHaveLength(3);
     expect(calls).toContainEqual(expect.stringContaining("'form_submit'"));
     expect(calls).toContainEqual(expect.stringContaining("'sequence_step'"));
-    for (const forbidden of ['inbound_wa', 'chatwoot_event', 'booking_processed', 'hot_lead_alert', 'facebook_lead_failed']) {
+    expect(calls).toContainEqual(expect.stringContaining("'hot_lead_alert'"));
+    for (const forbidden of ['inbound_wa', 'chatwoot_event', 'booking_processed', 'facebook_lead_failed']) {
       expect(calls.some((c) => c.includes(`'${forbidden}'`))).toBe(false);
     }
   });
@@ -383,6 +401,162 @@ describe('drainSequenceStepsOnce — gating, tenant scope, and failure isolation
     (claimJob as ReturnType<typeof vi.fn>).mockResolvedValue(undefined); // race lost
     await drainSequenceStepsOnce();
     expect(sendSequenceEmail).not.toHaveBeenCalled();
+    expect(completeJob).not.toHaveBeenCalled();
+    expect(failJob).not.toHaveBeenCalled();
+  });
+});
+
+describe('processHotLeadAlertJob — staleness window + Slack channel alerting (Bug 3 fix)', () => {
+  beforeEach(() => vi.clearAllMocks());
+  afterEach(() => vi.resetModules());
+
+  it('alerts a fresh hot lead to the sales/BD CHANNEL (never a DM)', async () => {
+    const { processHotLeadAlertJob } = await import('../services/jobDrainer');
+    const { sendSlackMessage } = await import('../services/slackService');
+    const { SLACK_SALES_BD_CHANNEL } = await import('../config/constants');
+    (sendSlackMessage as ReturnType<typeof vi.fn>).mockResolvedValue(true);
+
+    const recentBooking = new Date(Date.now() - 10 * 60 * 1000).toISOString(); // 10 min ago
+    const outcome = await processHotLeadAlertJob('job-1', {
+      contactId: 'c1',
+      contactName: 'Asha Rao',
+      score: 92,
+      tier: 'hot',
+      scheduledAt: recentBooking,
+      dealTitle: 'Growth Sprint',
+    }, 'tenant-1', new Date());
+
+    expect(outcome).toBe('alerted');
+    expect(sendSlackMessage).toHaveBeenCalledTimes(1);
+    const [channel, text] = (sendSlackMessage as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(channel).toBe(SLACK_SALES_BD_CHANNEL);
+    expect(text).toContain('Asha Rao');
+  });
+
+  // THE key regression test for the real hazard this PR closes: a naive
+  // drain of the 2026-03 backlog must not fire a stale "just booked" ping.
+  it('completes a stale booking WITHOUT calling sendSlackMessage', async () => {
+    const { processHotLeadAlertJob } = await import('../services/jobDrainer');
+    const { sendSlackMessage } = await import('../services/slackService');
+
+    const staleBooking = '2026-03-01T00:00:00.000Z'; // months outside the window
+    const outcome = await processHotLeadAlertJob('job-1', {
+      contactName: 'Old Lead',
+      scheduledAt: staleBooking,
+    }, 'tenant-1', new Date('2026-03-01T00:05:00.000Z'));
+
+    expect(outcome).toBe('stale');
+    expect(sendSlackMessage).not.toHaveBeenCalled();
+  });
+
+  it('does not throw on a malformed or missing timestamp — falls back safely instead', async () => {
+    const { processHotLeadAlertJob } = await import('../services/jobDrainer');
+    const { sendSlackMessage } = await import('../services/slackService');
+    (sendSlackMessage as ReturnType<typeof vi.fn>).mockResolvedValue(true);
+
+    // scheduledAt malformed, job row createdAt valid and recent — falls back to it.
+    await expect(processHotLeadAlertJob(
+      'job-1', { contactName: 'A', scheduledAt: 'not-a-real-date' }, 'tenant-1', new Date(),
+    )).resolves.toBe('alerted');
+
+    // Both the payload timestamp and the job row's createdAt are
+    // missing/unparseable — falls back to "now" rather than crashing.
+    await expect(processHotLeadAlertJob(
+      'job-2', { contactName: 'B' }, 'tenant-1', 'also-not-a-date',
+    )).resolves.toBe('alerted');
+  });
+});
+
+describe('drainHotLeadAlertsOnce — batch loop, failure isolation, and claim races (Bug 3 fix)', () => {
+  beforeEach(() => vi.clearAllMocks());
+  afterEach(() => vi.resetModules());
+
+  it('produces an alert per fresh job and completes it', async () => {
+    const { drainHotLeadAlertsOnce } = await import('../services/jobDrainer');
+    const { sendSlackMessage } = await import('../services/slackService');
+    const { getPendingJobs, claimJob, completeJob } = await import('../services/jobQueue');
+    (getPendingJobs as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { id: 'job-1', tenantId: 't1', createdAt: new Date(), payload: { contactName: 'Asha', scheduledAt: new Date().toISOString() } },
+    ]);
+    (claimJob as ReturnType<typeof vi.fn>).mockResolvedValue({ id: 'job-1' });
+    (sendSlackMessage as ReturnType<typeof vi.fn>).mockResolvedValue(true);
+
+    const stats = await drainHotLeadAlertsOnce();
+
+    expect(getPendingJobs).toHaveBeenCalledWith('hot_lead_alert', expect.any(Number));
+    expect(completeJob).toHaveBeenCalledWith('job-1');
+    expect(stats).toEqual({ processed: 1, alerted: 1, stale: 0, failed: 0 });
+  });
+
+  it('a stale job in a batch completes without alerting and is counted as stale, not alerted', async () => {
+    const { drainHotLeadAlertsOnce } = await import('../services/jobDrainer');
+    const { sendSlackMessage } = await import('../services/slackService');
+    const { getPendingJobs, claimJob, completeJob } = await import('../services/jobQueue');
+    (getPendingJobs as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { id: 'job-stale', tenantId: 't1', createdAt: new Date('2026-03-01'), payload: { contactName: 'Old', scheduledAt: '2026-03-01T00:00:00.000Z' } },
+    ]);
+    (claimJob as ReturnType<typeof vi.fn>).mockResolvedValue({ id: 'job-stale' });
+
+    const stats = await drainHotLeadAlertsOnce();
+
+    expect(sendSlackMessage).not.toHaveBeenCalled();
+    expect(completeJob).toHaveBeenCalledWith('job-stale');
+    expect(stats).toEqual({ processed: 1, alerted: 0, stale: 1, failed: 0 });
+  });
+
+  // THE OTHER key regression test: a failed/suppressed Slack send must NOT
+  // mark the job complete — a silently-swallowed send is the exact bug
+  // class this whole file exists to fix.
+  it('a failed Slack send does not complete the job — goes through failJob instead', async () => {
+    const { drainHotLeadAlertsOnce } = await import('../services/jobDrainer');
+    const { sendSlackMessage } = await import('../services/slackService');
+    const { getPendingJobs, claimJob, completeJob, failJob } = await import('../services/jobQueue');
+    (getPendingJobs as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { id: 'job-1', tenantId: 't1', createdAt: new Date(), payload: { contactName: 'Asha', scheduledAt: new Date().toISOString() } },
+    ]);
+    (claimJob as ReturnType<typeof vi.fn>).mockResolvedValue({ id: 'job-1' });
+    (sendSlackMessage as ReturnType<typeof vi.fn>).mockResolvedValue(false);
+
+    const stats = await drainHotLeadAlertsOnce();
+
+    expect(completeJob).not.toHaveBeenCalled();
+    expect(failJob).toHaveBeenCalledWith('job-1', expect.stringContaining('Slack send failed'));
+    expect(stats).toEqual({ processed: 0, alerted: 0, stale: 0, failed: 1 });
+  });
+
+  it('one bad job does not wedge the batch — later jobs still get processed', async () => {
+    const { drainHotLeadAlertsOnce } = await import('../services/jobDrainer');
+    const { sendSlackMessage } = await import('../services/slackService');
+    const { getPendingJobs, claimJob, completeJob, failJob } = await import('../services/jobQueue');
+    (getPendingJobs as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { id: 'job-bad', tenantId: 't1', createdAt: new Date(), payload: { contactName: 'Bad', scheduledAt: new Date().toISOString() } },
+      { id: 'job-good', tenantId: 't1', createdAt: new Date(), payload: { contactName: 'Good', scheduledAt: new Date().toISOString() } },
+    ]);
+    (claimJob as ReturnType<typeof vi.fn>).mockResolvedValue({ id: 'claimed' });
+    (failJob as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
+    (sendSlackMessage as ReturnType<typeof vi.fn>)
+      .mockRejectedValueOnce(new Error('Slack API timeout'))
+      .mockResolvedValueOnce(true);
+
+    const stats = await drainHotLeadAlertsOnce();
+
+    expect(failJob).toHaveBeenCalledWith('job-bad', expect.stringContaining('Slack API timeout'));
+    expect(completeJob).toHaveBeenCalledWith('job-good');
+    expect(stats).toEqual({ processed: 1, alerted: 1, stale: 0, failed: 1 });
+  });
+
+  it('leaves a job alone (no complete/fail) when another worker already claimed it', async () => {
+    const { drainHotLeadAlertsOnce } = await import('../services/jobDrainer');
+    const { sendSlackMessage } = await import('../services/slackService');
+    const { getPendingJobs, claimJob, completeJob, failJob } = await import('../services/jobQueue');
+    (getPendingJobs as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { id: 'job-1', tenantId: 't1', createdAt: new Date(), payload: { contactName: 'Asha', scheduledAt: new Date().toISOString() } },
+    ]);
+    (claimJob as ReturnType<typeof vi.fn>).mockResolvedValue(undefined); // race lost
+
+    await drainHotLeadAlertsOnce();
+
+    expect(sendSlackMessage).not.toHaveBeenCalled();
     expect(completeJob).not.toHaveBeenCalled();
     expect(failJob).not.toHaveBeenCalled();
   });
