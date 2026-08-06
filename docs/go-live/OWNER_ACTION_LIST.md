@@ -24,8 +24,16 @@ check that actually matters.
 
 ## ✅ DONE — backups, without paying Railway
 
-Railway's managed backups are out on budget. The free route — the same one used
-on 28 Jul — is an encrypted `pg_dump` to local disk:
+**There is now a script: `./scripts/backup-prod-db.sh`** (add `--restore-test`
+to also restore into a scratch database and count rows). It generates its own
+passphrase into the Keychain, encrypts, proves the archive decrypts *before*
+deleting the plaintext, and prints the one crontab line that makes it weekly. It
+does not install that cron job for you — scheduling a production dump on your
+machine is your call, not an agent's.
+
+Everything below is what the script does, kept for when you need to do it by
+hand. Railway's managed backups are out on budget; the free route is an
+encrypted `pg_dump` to local disk:
 
 ```bash
 cd input-data/g1-backups
