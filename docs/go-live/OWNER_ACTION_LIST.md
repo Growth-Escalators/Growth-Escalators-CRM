@@ -1,162 +1,129 @@
-# Owner action list — what only Jatin can do
+# Owner action list
 
-**As of 2026-08-05.** Everything on this list is blocked on account access, a
-browser session, or a permission an agent does not hold. Nothing here is
-waiting on more engineering.
-
-Ordered deliberately. The ordering matters in two places and is called out
-where it does.
+**Updated 2026-08-06.** Most of this list is now done. What remains needs
+account access, or a decision an agent should not take alone.
 
 ---
 
-## 1. Enable database backups — do this first
+## ✅ DONE — branch pushed, merged with main, migration collision resolved
 
-**Why first:** production Postgres has **zero backups and no schedule**, and
-item 4 below (an irreversible data purge) must not happen without one. It is
-also the cheapest item here: ~2 minutes, no restart, no deploy.
+[PR #163](https://github.com/Growth-Escalators/Growth-Escalators-CRM/pull/163)
+is open, `MERGEABLE`, **CI green**. #108 closed as superseded — its fix is
+included here as `688553fd`.
 
-Full findings, click-path, risk table and rollback:
-[`RAILWAY_BACKUP_PLAN.md`](./RAILWAY_BACKUP_PLAN.md).
+`main` had independently used `0045` (roles/RBAC) and `0046` (user_invites)
+while this branch used them for SEO. This branch's five migrations are
+renumbered **`0047`–`0051`**; SQL bodies unchanged.
 
-**Why an agent cannot do this.** Not caution — a capability limit, established
-with evidence:
-- The Railway CLI has **no backup subcommand at all** (`railway --help` returns
-  zero matches for "backup"; `railway volume` offers only
-  list/add/delete/update/detach/attach).
-- The GraphQL reads (`volumeInstanceBackupList`,
-  `volumeInstanceBackupScheduleList`) return **"Not Authorized"** on the same
-  token that reads projects, services, deployments and volumes without issue.
-  Backup state appears to be gated to browser-session auth.
-
-**The target, confirmed independently:** project `GE-Backend-Server`,
-environment `production`, service `Postgres`, volume `postgres-volume`,
-**188 MB / 500 MB**. (Not `Postgres-Bhky` — that is staging's real DB, not an
-orphan. Not `Postgres-K0lx` — that is Documenso's.)
-
-**Steps**
-1. Railway → `GE-Backend-Server` → `production` → **`Postgres`** → **Backups**
-   tab. This is a read-only look; it is also the only way to see the current
-   state.
-2. Enable **Daily**. No restart, safe during business hours.
-3. Leave it a day, then enable **PITR** — this one **triggers a redeploy** of
-   the database service, so pick a quiet window. The image is already
-   major-version pinned (`postgres-ssl:18`), so nothing else is needed first.
-
-Estimated cost for daily + weekly + monthly + PITR at this volume: **well under
-$1/month**.
-
-> A backup nobody has restore-tested is not a backup. Before item 4, restore
-> one into a scratch database and confirm the row counts.
+Verified by applying all 52 migrations to a clean scratch database: 111 tables,
+both sides' tables present, `site_changes_approved_requires_approver` in place.
+File numbers agreeing is necessary but not sufficient — that restore is the
+check that actually matters.
 
 ---
 
-## 1b. BEFORE MERGING — a migration-number collision will stop the API booting
+## ✅ DONE — backups, without paying Railway
 
-**Pushing the branch is safe. Merging it to `main` as-is is not.**
-
-While this branch was being built, `main` advanced and independently used the
-same two migration numbers for unrelated work:
-
-| Number | `origin/main` | this branch |
-|---|---|---|
-| `0045` | `quiet_black_bird` — creates `role_permissions` | `typical_toro` — SEO tenant hardening |
-| `0046` | `sloppy_zeigeist` — creates `user_invites` | `glossy_leo` — the `seo_sites` registry |
-
-`0047`–`0049` on this branch are free; only these two collide.
-
-**Why it matters.** A merge conflicts on three files that cannot be resolved by
-picking a side — `meta/_journal.json`, `meta/0045_snapshot.json` and
-`meta/0046_snapshot.json` exist on both sides with different content. The
-snapshots are the chain `db:generate` diffs against, so a bad resolution
-silently produces wrong SQL on the *next* migration, not this one. And Railway
-applies migrations on boot, so a broken journal means the API does not start.
-This is exactly risk R1 from the original plan, arrived at from the other
-direction: the plan said "rebase first, next is 0045" — that was true when it
-was written, and `main` has moved twice since.
-
-**The remedy**, in order:
-1. Commit or stash your eight working-tree files (six `.claude/agents/*`
-   deletions, `.gitignore`, `CLAUDE.md`). A rebase must not run over unrelated
-   dirty files.
-2. `git fetch origin && git rebase origin/main`.
-3. Renumber this branch's five migrations to `0047`–`0051`, rebuilding
-   `meta/_journal.json` entries and renaming each `meta/*_snapshot.json` to
-   match. The SQL bodies do not change — only the numbers and the journal.
-4. `npm run build && npm test`, then apply to a scratch database and confirm
-   all five apply cleanly in order.
-
-An agent did not do this because AGENTS.md forbids rebasing while unrelated
-dirty files are present, and step 1 is your call, not an agent's.
-
----
-
-## 2. Push the branch
-
-**21 commits** are sitting local on `fix/wizmatch-scoring-pipeline`.
+Railway's managed backups are out on budget. The free route — the same one used
+on 28 Jul — is an encrypted `pg_dump` to local disk:
 
 ```bash
-git push origin fix/wizmatch-scoring-pipeline
+cd input-data/g1-backups
+STAMP=$(date -u +%Y%m%dT%H%M%SZ)
+railway run --service Postgres -- sh -c \
+  "/opt/homebrew/opt/postgresql@18/bin/pg_dump --format=custom --no-owner --no-acl \
+   --dbname=\"\$DATABASE_PUBLIC_URL\" -f prod-$STAMP.dump"
 ```
 
-An agent attempted this and was **denied by the permission classifier**; that
-denial was not worked around. Either run it yourself or add a Bash permission
-rule.
+Three things worth keeping for next time:
 
-**Lower risk than it sounds:** the branch already exists on the remote, and
-**Railway auto-deploys on `main`, not on feature branches**. This push deploys
-nothing. Merging to `main` is a separate, production-affecting decision.
+- **`DATABASE_URL` will not work from your laptop.** It resolves to
+  `postgres.railway.internal`, which exists only inside Railway's network. Use
+  `DATABASE_PUBLIC_URL`.
+- **`railway run` never prints the credential** — it injects it into the
+  subprocess environment, so the connection string stays out of shell history
+  and out of any transcript. Do not use `railway variables` to read it; that
+  prints plaintext secrets, which is the last thing wanted mid-exposure.
+- Local `pg_dump` must be **v18**. v16 refuses to dump an 18 server.
+
+**`input-data/` is now in `.gitignore`.** It was previously ignored only via
+`.git/info/exclude` — local-only, so a fresh clone would not have it and the
+first `git add -A` there would have staged an encrypted production dump.
 
 ---
 
-## 3. Rotate the leaked credentials
+## ⛔ YOURS — 1. Encrypt, restore-test, then merge #163
+
+**A dump that has never been restored is not a backup.** Do this before merging.
+
+```bash
+cd input-data/g1-backups
+openssl enc -aes-256-cbc -pbkdf2 -salt -in prod-<STAMP>.dump -out prod-<STAMP>.dump.enc
+rm prod-<STAMP>.dump                      # remove the plaintext
+shasum -a 256 prod-<STAMP>.dump.enc
+
+createdb restore_test
+openssl enc -d -aes-256-cbc -pbkdf2 -in prod-<STAMP>.dump.enc | \
+  /opt/homebrew/opt/postgresql@18/bin/pg_restore -d restore_test --no-owner
+psql restore_test -c "SELECT count(*) FROM contacts;"
+dropdb restore_test
+```
+
+Then merge. CI is green and the migrations are verified, but merging
+**auto-deploys** and applies five migrations on boot — a production event, and
+the moment should be a human's choice.
+
+After deploying, check `/api/system/health`: 30 previously-unmonitored crons
+became visible, so expect more rows than before. That is the change, not a
+fault.
+
+---
+
+## ⛔ YOURS — 2. Rotate the leaked credentials
 
 Checklist:
 `~/repo-comparison/v2/.claude/worktrees/feat+contracts-esign/SECRETS-ROTATION.md`
 
-**Why an agent cannot do this:** it requires being logged in to WordPress, GCP
-Console, Anthropic, Apollo, Hunter, MillionVerifier, GitHub and the CRM as
-owner. An agent holds none of those accounts and should not.
+Needs WordPress, GCP, Anthropic, Apollo, Hunter, MillionVerifier, GitHub and
+CRM logins. An agent holds none of those and should not.
 
-The checklist has been audited and corrected. Two things worth knowing before
-you start, because both would otherwise cost you time mid-rotation:
+Two traps that would otherwise cost you time mid-rotation:
 
-**WordPress — update the Railway vars, do NOT delete them.** The encrypted
-`tenant_integrations` store and its `PUT /api/tenant-integrations/:provider`
-route are live on `main` today, but nothing on `main` *reads* WordPress
-credentials from it — `programmaticSeoService.publishToWordPress()` is still
-the only reader and it reads `process.env`. Deleting `WP_AGEDDENTISTRY_*` stops
-WordPress publishing silently (it fails soft, with no error). Rotate the
-application password, update the vars with the new value, revoke the old one.
-
-**There are two different Google OAuth clients.** `GCP_OAUTH_CLIENT_SECRET` is
-leaked and needs rotating. `GOOGLE_SEO_OAUTH_*` is a **separate** client used
-only by the Search Console pull, and a sweep of committed files found no
-plaintext value for it — it is not leaked and should not be rotated. Rotating
-it "to be safe" breaks the weekly pull until the refresh token is re-minted.
+- **WordPress: UPDATE the `WP_AGEDDENTISTRY_*` Railway vars — do not delete
+  them.** Nothing on `main` reads WordPress credentials from the encrypted
+  store yet; `programmaticSeoService.publishToWordPress()` is still the only
+  reader and it reads `process.env`. Deleting them stops publishing silently,
+  with no error.
+- **`GOOGLE_SEO_OAUTH_*` is a different client and is not leaked.** Only
+  `GCP_OAUTH_CLIENT_SECRET` needs rotating. Rotating the SEO one "to be safe"
+  breaks the weekly Search Console pull until the refresh token is re-minted.
 
 ---
 
-## 4. The retired-client data purge — gated on item 1
+## 🕓 DEFERRED — 3. The retired-client purge
 
-aarohaom.com, blackpandaenterprises.com, ageddentistry.org.
-
-Plan and dry-run script:
+aarohaom.com, blackpandaenterprises.com, ageddentistry.org. Plan and script:
 [`SEO_CLIENT_DATA_PURGE_PLAN.md`](./SEO_CLIENT_DATA_PURGE_PLAN.md) and
-`scripts/seo-client-purge.ts`.
+`scripts/seo-client-purge.ts` — dry-run by default, and incapable of deleting
+without `--execute`, a typed confirmation string, and `--allow-non-local`.
 
-**Preconditions, all three:**
-1. Item 1 done, **and** a backup restore-tested into a scratch database.
-2. A dry run reviewed — the script counts and prints by default and cannot
-   delete without an explicit flag plus a typed confirmation.
-3. Your explicit second confirmation.
-
-This is irreversible. It is last on the list for that reason.
+**Recommendation: leave it.** It is irreversible and that data is inert — it
+costs nothing to keep. Do it only if you actively want the rows gone, and only
+behind a restore-tested backup.
 
 ---
 
-## Not on this list
+## Known gaps in the shipped work
 
-Everything else is done and verified: Phases 1–6 of the multi-tenant SEO
-platform — the approval queue, the drift sweep, the per-tenant cost guard, the
-GSC/GA4 pulls, and the n8n retirement. See `.ai/HANDOFF_LOG.md` for the narrative and
-`.ai/CURRENT_TASK.md` for current state.
+Stated rather than hidden:
+
+- **GA4 calls are not counted by the cost guard** — `SeoCostGuardEstimatedCalls`
+  has no `ga4Calls` field, and reusing `gscCalls` would corrupt the real GSC
+  daily-cap counter with GA4 traffic.
+- **The drift sweep's third URL source** (top GSC URLs by impressions, the one
+  that catches pages the agency never touched) is unimplemented — no per-URL
+  GSC table exists, and inventing one was declined rather than guessed at.
+- **`hot_lead_alert` jobs have had no consumer since n8n died.**
+  `bookingService.ts` still creates one per hot lead and nothing drains them.
+  Pre-existing, documented in `jobDrainer.ts`, worth its own ticket.
+- **`.claude/agents/seo-debugger.md`** still describes the retired n8n system.
