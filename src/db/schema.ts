@@ -666,7 +666,7 @@ export const invoices = pgTable('invoices', {
   id: uuid('id').primaryKey().defaultRandom(),
   tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
   clientId: uuid('client_id').notNull().references(() => billingClients.id),
-  invoiceNumber: text('invoice_number').notNull().unique(),
+  invoiceNumber: text('invoice_number').notNull(),
   invoiceType: text('invoice_type').notNull(), // 'gst' | 'non_gst'
   status: text('status').default('draft'), // draft | sent | paid | partially_paid | overdue | cancelled
   invoiceDate: timestamp('invoice_date').notNull(),
@@ -704,7 +704,15 @@ export const invoices = pgTable('invoices', {
   createdBy: text('created_by').default('jatin'),
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at').defaultNow(),
-});
+}, (t) => ({
+  // invoiceNumber used to be a bare column-level UNIQUE constraint (global
+  // across all tenants) despite invoiceNumberService.ts embedding a
+  // tenant-derived prefix into the string (see #160) — two tenants whose
+  // derived short codes happened to collide would race the same uniqueness
+  // slot. Scoping the constraint to (tenant_id, invoice_number) matches the
+  // real invariant and mirrors invoice_series_tenant_type_fy_uniq_idx below.
+  tenantInvoiceNumberUniq: uniqueIndex('invoices_tenant_invoice_number_uniq_idx').on(t.tenantId, t.invoiceNumber),
+}));
 
 // ---------------------------------------------------------------------------
 // TABLE 24 — invoice_line_items

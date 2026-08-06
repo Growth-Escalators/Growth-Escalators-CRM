@@ -365,6 +365,13 @@
       "when": 1785919975247,
       "tag": "0051_curvy_santa_claus",
       "breakpoints": true
+    },
+    {
+      "idx": 52,
+      "version": "7",
+      "when": 1786040709180,
+      "tag": "0052_tiresome_vision",
+      "breakpoints": true
     }
   ]
 }

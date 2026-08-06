@@ -447,10 +447,28 @@ export function assessWizmatchPilotReadiness(inputs: PilotReadinessInputs): Pilo
     // human-approval hard stop.
     // 51 = seo_api_usage, the per-tenant/per-site spend ledger.
     // All five touch only SEO tables and carry no outreach/sequence/reply data.
+    // ---- Snapshot-lineage repair + invoices tenant-scoped uniqueness -------
+    // The 45->47 renumbering above (SQL bodies unchanged, only file numbers/
+    // journal moved) did NOT regenerate the meta/*_snapshot.json chain: 0047's
+    // prevId still pointed at 0044, forking around 0045/0046 entirely, so
+    // snapshots 0047-0051 had silently lost track of 4 real, already-applied
+    // tables (roles, role_permissions, user_permission_overrides, user_invites)
+    // and users.role_id — `npm run db:generate` refused to run at all until
+    // this was repaired. Fixed by restoring the missing table/column defs
+    // (copied verbatim from 0046, since no 0047-0051 migration touches them)
+    // into snapshots 0047-0051 and repointing 0047's prevId at 0046's real id.
+    // No .sql migration files were touched — this is metadata-only, verified
+    // by confirming `db:generate` now produces ONLY the invoices change below
+    // with nothing spurious about the restored tables.
+    // 52 = invoices — scopes the invoiceNumber uniqueness constraint to
+    // (tenant_id, invoice_number) instead of a bare global UNIQUE, closing a
+    // cross-tenant collision-risk class on an existing column. Drops the
+    // column-level UNIQUE and adds a compound UNIQUE INDEX only; no new
+    // table, no ALTER of any other column, no data backfill. Owner-approved.
     // Bump this ONLY alongside an explicit authorisation for the migration in
     // question — the point of the mark is that an unreviewed migration showing
     // up in a hardening pass still gets surfaced.
-    const AUTHORISED_MIGRATION_HIGH_WATER_MARK = 51;
+    const AUTHORISED_MIGRATION_HIGH_WATER_MARK = 52;
     const unauthorised = sqlFiles
       .map((f) => ({ file: f, idx: parseInt(f.slice(0, 4), 10) }))
       .filter((m) => Number.isFinite(m.idx) && m.idx > AUTHORISED_MIGRATION_HIGH_WATER_MARK)
