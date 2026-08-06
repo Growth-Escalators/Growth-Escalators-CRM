@@ -142,30 +142,36 @@ describe('runSeoSearchConsolePull', () => {
   it('persists totals to seo_weekly_metrics and per-query rows to keyword_rankings, binding tenant_id + site_id on every write', async () => {
     mockListSeoSites.mockResolvedValueOnce([site()]);
     const client = fakeClient(async (args) => {
-      if (!args.requestBody.dimensions) {
+      const dim = args.requestBody.dimensions?.[0];
+      if (!dim) {
         return { data: { rows: [{ clicks: 120, impressions: 4000, ctr: 0.03, position: 8.4 }] } };
       }
-      return {
-        data: {
-          rows: [
-            { keys: ['growth agency'], clicks: 10, impressions: 200, position: 5.2 },
-            { keys: ['b2b outreach'], clicks: 4, impressions: 90, position: 12.1 },
-          ],
-        },
-      };
+      if (dim === 'query') {
+        return {
+          data: {
+            rows: [
+              { keys: ['growth agency'], clicks: 10, impressions: 200, position: 5.2 },
+              { keys: ['b2b outreach'], clicks: 4, impressions: 90, position: 12.1 },
+            ],
+          },
+        };
+      }
+      return { data: { rows: [] } }; // dim === 'page' — covered separately below
     });
 
     const result = await runSeoSearchConsolePull('tenant-1', { client, now: NOW });
 
-    // 1 totals row + 2 query rows
+    // 1 totals row + 2 query rows + 0 page rows
     expect(result).toEqual({ sites: 1, rows: 3, errors: 0 });
 
-    // Two GSC calls: one totals (no dimensions), one query-dimension (rowLimit 25).
-    expect(client.searchanalytics.query).toHaveBeenCalledTimes(2);
+    // Three GSC calls: totals (no dimensions), query-dimension (rowLimit 25),
+    // page-dimension (rowLimit 50) — see the dedicated describe block below.
+    expect(client.searchanalytics.query).toHaveBeenCalledTimes(3);
     const calls = (client.searchanalytics.query as ReturnType<typeof vi.fn>).mock.calls as [GscQueryArgs][];
     expect(calls[0][0].siteUrl).toBe('sc-domain:example.com');
     expect(calls[0][0].requestBody.dimensions).toBeUndefined(); // totals call — no dimension
     expect(calls[1][0]).toMatchObject({ siteUrl: 'sc-domain:example.com', requestBody: { dimensions: ['query'], rowLimit: 25 } });
+    expect(calls[2][0]).toMatchObject({ siteUrl: 'sc-domain:example.com', requestBody: { dimensions: ['page'], rowLimit: 50 } });
 
     const inserts = mockPoolQuery.mock.calls as [string, unknown[]][];
     const weeklyInsert = inserts.find(([sql]) => sql.includes('INSERT INTO seo_weekly_metrics'));
@@ -189,8 +195,10 @@ describe('runSeoSearchConsolePull', () => {
       return { rows: [] };
     });
     const client = fakeClient(async (args) => {
-      if (!args.requestBody.dimensions) return { data: { rows: [{ clicks: 1, impressions: 1, position: 1 }] } };
-      return { data: { rows: [{ keys: ['seo tools'], position: 7.5 }] } };
+      const dim = args.requestBody.dimensions?.[0];
+      if (!dim) return { data: { rows: [{ clicks: 1, impressions: 1, position: 1 }] } };
+      if (dim === 'query') return { data: { rows: [{ keys: ['seo tools'], position: 7.5 }] } };
+      return { data: { rows: [] } }; // dim === 'page'
     });
 
     await runSeoSearchConsolePull('tenant-1', { client, now: NOW });
@@ -292,6 +300,145 @@ describe('runSeoSearchConsolePull', () => {
       expect(allLoggedText).not.toContain('super-secret-client-secret-value');
       expect(allLoggedText).toContain('[redacted]');
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Page-dimension pull → seo_page_metrics — the third GSC call, added to feed
+// siteDriftService.ts's "top ~50 GSC URLs by impressions" candidate source.
+// ---------------------------------------------------------------------------
+describe('page-dimension pull → seo_page_metrics', () => {
+  /** A client whose totals/query calls are boring; only the page-dimension response is interesting. */
+  function pageDimClient(pageRows: SeoSearchConsoleRow[]): SeoSearchConsoleClient {
+    return fakeClient(async (args) => {
+      const dim = args.requestBody.dimensions?.[0];
+      if (!dim) return { data: { rows: [{ clicks: 1, impressions: 1, position: 1 }] } };
+      if (dim === 'query') return { data: { rows: [] } };
+      return { data: { rows: pageRows } }; // dim === 'page'
+    });
+  }
+
+  it('issues a page-dimension GSC call (rowLimit 50) alongside totals and query', async () => {
+    mockListSeoSites.mockResolvedValueOnce([site()]);
+    const client = pageDimClient([]);
+
+    await runSeoSearchConsolePull('tenant-1', { client, now: NOW });
+
+    expect(client.searchanalytics.query).toHaveBeenCalledTimes(3);
+    const calls = (client.searchanalytics.query as ReturnType<typeof vi.fn>).mock.calls as [GscQueryArgs][];
+    expect(calls[2][0]).toMatchObject({
+      siteUrl: 'sc-domain:example.com',
+      requestBody: { dimensions: ['page'], rowLimit: 50 },
+    });
+  });
+
+  it('upserts page rows into seo_page_metrics, binding tenant_id/site_id/page_url/recorded_date', async () => {
+    mockListSeoSites.mockResolvedValueOnce([site()]);
+    const client = pageDimClient([
+      { keys: ['https://example.com/pricing'], clicks: 12, impressions: 300, ctr: 0.04, position: 6.1 },
+    ]);
+
+    const result = await runSeoSearchConsolePull('tenant-1', { client, now: NOW });
+
+    // 1 totals row + 0 query rows + 1 page row
+    expect(result).toEqual({ sites: 1, rows: 2, errors: 0 });
+
+    const inserts = mockPoolQuery.mock.calls as [string, unknown[]][];
+    const pageInsert = inserts.find(([sql]) => sql.includes('INSERT INTO seo_page_metrics'));
+    expect(pageInsert).toBeTruthy();
+    expect(pageInsert?.[0]).toContain('ON CONFLICT (tenant_id, site_id, recorded_date, page_url)');
+    expect(pageInsert?.[0]).toContain('DO UPDATE SET');
+    expect(pageInsert?.[1][0]).toBe('tenant-1'); // tenant_id
+    expect(pageInsert?.[1][1]).toBe('site-1'); // site_id
+    expect(pageInsert?.[1][2]).toBe('https://example.com/pricing'); // page_url
+    expect(pageInsert?.[1]).toContain(12); // clicks
+    expect(pageInsert?.[1]).toContain(300); // impressions
+  });
+
+  it('running the pull twice for the same day still issues one UPSERT per URL, carrying the second run’s updated values', async () => {
+    mockListSeoSites.mockResolvedValueOnce([site()]);
+    mockListSeoSites.mockResolvedValueOnce([site()]);
+    const firstClient = pageDimClient([
+      { keys: ['https://example.com/pricing'], clicks: 10, impressions: 200, position: 8 },
+    ]);
+    const secondClient = pageDimClient([
+      { keys: ['https://example.com/pricing'], clicks: 25, impressions: 500, position: 5.5 },
+    ]);
+
+    await runSeoSearchConsolePull('tenant-1', { client: firstClient, now: NOW });
+    const firstInserts = (mockPoolQuery.mock.calls as [string, unknown[]][])
+      .filter(([sql]) => sql.includes('INSERT INTO seo_page_metrics'));
+    expect(firstInserts).toHaveLength(1);
+    expect(firstInserts[0][1]).toContain(10);
+
+    mockPoolQuery.mockClear(); // clears call history only — mockResolvedValue({rows:[]}) from beforeEach is preserved
+
+    await runSeoSearchConsolePull('tenant-1', { client: secondClient, now: NOW });
+    const secondInserts = (mockPoolQuery.mock.calls as [string, unknown[]][])
+      .filter(([sql]) => sql.includes('INSERT INTO seo_page_metrics'));
+
+    // Still a single ON CONFLICT ... DO UPDATE upsert, not a second competing
+    // INSERT — that's what leaves exactly one row for (tenant, site, date,
+    // url) in real Postgres, now carrying the second run's values.
+    expect(secondInserts).toHaveLength(1);
+    expect(secondInserts[0][0]).toContain('ON CONFLICT');
+    expect(secondInserts[0][0]).toContain('DO UPDATE SET');
+    expect(secondInserts[0][1]).toContain(25); // clicks — updated
+    expect(secondInserts[0][1]).toContain(500); // impressions — updated
+    expect(secondInserts[0][1]).not.toContain(10); // stale first-run value is gone
+  });
+
+  it('skips a page_url over 2000 characters, logs it, and still persists the rest of the pull', async () => {
+    const longUrl = 'https://example.com/' + 'x'.repeat(2000);
+    mockListSeoSites.mockResolvedValueOnce([site()]);
+    const client = pageDimClient([
+      { keys: [longUrl], clicks: 1, impressions: 1, position: 1 },
+      { keys: ['https://example.com/short'], clicks: 5, impressions: 50, position: 3 },
+    ]);
+
+    const result = await runSeoSearchConsolePull('tenant-1', { client, now: NOW });
+
+    // totals(1) + query(0) + page(1 short row persisted, long one skipped)
+    expect(result).toEqual({ sites: 1, rows: 2, errors: 0 });
+    const pageInserts = (mockPoolQuery.mock.calls as [string, unknown[]][])
+      .filter(([sql]) => sql.includes('INSERT INTO seo_page_metrics'));
+    expect(pageInserts).toHaveLength(1);
+    expect(pageInserts[0][1]).toContain('https://example.com/short');
+    expect(mockLoggerWarn).toHaveBeenCalledWith(expect.stringContaining('skipping page_url'));
+  });
+
+  it('estimates 3 GSC calls (totals + query + page) on the cost guard, plus the required ga4Calls field', async () => {
+    mockListSeoSites.mockResolvedValueOnce([site()]);
+    const client = pageDimClient([]);
+
+    await runSeoSearchConsolePull('tenant-1', { client, now: NOW });
+
+    expect(mockGuardSeoSpend).toHaveBeenCalledWith(
+      expect.objectContaining({
+        estimate: expect.objectContaining({ gscCalls: 3, ga4Calls: 0 }),
+      }),
+    );
+  });
+
+  it('a page-dimension failure does not lose the totals/keyword data that already succeeded, and is counted as an error', async () => {
+    mockListSeoSites.mockResolvedValueOnce([site()]);
+    const client = fakeClient(async (args) => {
+      const dim = args.requestBody.dimensions?.[0];
+      if (!dim) return { data: { rows: [{ clicks: 120, impressions: 4000, position: 8.4 }] } };
+      if (dim === 'query') return { data: { rows: [{ keys: ['growth agency'], position: 5.2 }] } };
+      throw Object.assign(new Error('page dimension boom'), { code: 500 }); // dim === 'page'
+    });
+
+    const result = await runSeoSearchConsolePull('tenant-1', { client, now: NOW });
+
+    // totals row + 1 keyword row still persisted; the page pull failed and
+    // contributed zero rows, counted as one error rather than aborting the site.
+    expect(result).toEqual({ sites: 1, rows: 2, errors: 1 });
+    const inserts = mockPoolQuery.mock.calls as [string, unknown[]][];
+    expect(inserts.some(([sql]) => sql.includes('INSERT INTO seo_weekly_metrics'))).toBe(true);
+    expect(inserts.some(([sql]) => sql.includes('INSERT INTO keyword_rankings'))).toBe(true);
+    expect(inserts.some(([sql]) => sql.includes('INSERT INTO seo_page_metrics'))).toBe(false);
+    expect(mockLoggerError).toHaveBeenCalledWith(expect.stringContaining('page-dimension pull failed'));
   });
 });
 
