@@ -312,6 +312,14 @@ describe('PR 8B scope boundary — PR 9/10 must not have started', () => {
       + 'errors. Guarded going forward by migrationSnapshotLineage.test.ts. Touches only SEO tables. '
       + 'Carries no outreach, sequence, reply, or provider data. Unrelated to PR 9/10 (Smartlead / '
       + 'reply ingestion).',
+    53: 'invoices — scopes the invoiceNumber uniqueness constraint to (tenant_id, invoice_number) instead '
+      + 'of a bare global UNIQUE, closing a cross-tenant collision-risk class on an existing column (same '
+      + 'class #160 documented and deliberately left open for retainer_number). Drops the column-level '
+      + 'UNIQUE and adds a compound UNIQUE INDEX only; no new table, no ALTER of any other column, no '
+      + 'data backfill. Generated cleanly against the already-repaired snapshot chain (see 52 above / '
+      + 'migrationSnapshotLineage.test.ts) — no lineage issue here. Carries no outreach, sequence, reply, '
+      + 'or Smartlead/reply-ingestion data of any kind. Owner-approved. Unrelated to PR 9/10 (Smartlead / '
+      + 'reply ingestion).',
   };
 
   it('every migration past 0037 is in the reviewed out-of-scope allowlist', () => {
