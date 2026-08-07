@@ -457,10 +457,16 @@ export function assessWizmatchPilotReadiness(inputs: PilotReadinessInputs): Pilo
     // about main's own 0045/0046. Those five statements were deleted; see the
     // header of 0052_sturdy_the_fury.sql and migrationSnapshotLineage.test.ts.
     // All six touch only SEO tables and carry no outreach/sequence/reply data.
+    // 53 = invoices — scopes the invoiceNumber uniqueness constraint to
+    // (tenant_id, invoice_number) instead of a bare global UNIQUE, closing a
+    // cross-tenant collision-risk class on an existing column (same class
+    // #160 documented and deliberately left open for retainer_number). Drops
+    // the column-level UNIQUE and adds a compound UNIQUE INDEX only; no new
+    // table, no ALTER of any other column, no data backfill. Owner-approved.
     // Bump this ONLY alongside an explicit authorisation for the migration in
     // question — the point of the mark is that an unreviewed migration showing
     // up in a hardening pass still gets surfaced.
-    const AUTHORISED_MIGRATION_HIGH_WATER_MARK = 52;
+    const AUTHORISED_MIGRATION_HIGH_WATER_MARK = 53;
     const unauthorised = sqlFiles
       .map((f) => ({ file: f, idx: parseInt(f.slice(0, 4), 10) }))
       .filter((m) => Number.isFinite(m.idx) && m.idx > AUTHORISED_MIGRATION_HIGH_WATER_MARK)
