@@ -241,7 +241,9 @@ router.post('/website', async (req: Request, res: Response): Promise<void> => {
 
     await db.update(contacts).set({
       companyName: company || current?.companyName || undefined,
-      businessType: businessVertical || current?.businessType || undefined,
+      businessType: businessVertical !== 'general'
+        ? businessVertical
+        : current?.businessType || undefined,
       tags: newTags,
       metadata: {
         ...existingMetadata,
