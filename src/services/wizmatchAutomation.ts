@@ -47,7 +47,13 @@ export function getWizmatchAutomationStatus(
   env: NodeJS.ProcessEnv = process.env,
   now = new Date(),
 ): WizmatchAutomationStatus {
-  const masterEnabled = env.DISABLE_BACKGROUND_JOBS !== 'true' && Boolean(env.WIZMATCH_TENANT_ID);
+  // WizMatch was retired into Growth Escalators in August 2026. Keep the code
+  // available for local/test history, but production must stay hard-off even if
+  // stale Railway environment variables still exist. This avoids deleting any
+  // shared Railway service or database while guaranteeing no WizMatch cron,
+  // sourcing, sending, company-prep or staffing-reminder workload can start.
+  const retiredInProduction = env.NODE_ENV === 'production';
+  const masterEnabled = !retiredInProduction && env.DISABLE_BACKGROUND_JOBS !== 'true' && Boolean(env.WIZMATCH_TENANT_ID);
   const legacyAutomationEnabled = masterEnabled && enabled(env.WIZMATCH_LEGACY_AUTOMATION_ENABLED);
   const staffingAutomationRequested = enabled(env.WIZMATCH_STAFFING_AUTOMATION_ENABLED);
   const staffingGateCEnabled = enabled(env.WIZMATCH_STAFFING_GATE_C_ENABLED);
@@ -59,7 +65,7 @@ export function getWizmatchAutomationStatus(
     staffingAutomationRequested,
     staffingGateCEnabled,
     staffingRemindersEnabled,
-    sendingEnabled: enabled(env.WIZMATCH_SENDING_ENABLED),
+    sendingEnabled: !retiredInProduction && enabled(env.WIZMATCH_SENDING_ENABLED),
     autoPrepEnabled: masterEnabled && enabled(env.WIZMATCH_AUTO_PREP_ENABLED),
     schedule: WIZMATCH_STAFFING_REMINDER_SCHEDULE,
     nextExpectedRunAt: staffingRemindersEnabled ? nextStaffingReminderAt(now) : null,
