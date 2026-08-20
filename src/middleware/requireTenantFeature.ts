@@ -29,6 +29,20 @@ export function requireTenantFeature(feature: keyof TenantFeatureFlags) {
       res.status(401).json({ error: 'unauthorised', message: 'Authentication is required' });
       return;
     }
+
+    // WizMatch was retired into Growth Escalators in August 2026. Production
+    // access is intentionally gone regardless of any stale tenant-plan or DB
+    // feature override. Keeping this check here lets the shared GE CRM remain
+    // untouched while the old WizMatch code/data is retained temporarily for
+    // rollback/audit purposes.
+    if (feature === 'wizmatch' && process.env.NODE_ENV === 'production') {
+      res.status(410).json({
+        error: 'feature_retired',
+        message: 'WizMatch has been retired into Growth Escalators.',
+      });
+      return;
+    }
+
     try {
       const features = await getTenantFeatures(tenantId);
       if (features[feature]) {
