@@ -35,6 +35,15 @@ export function timingSafeSecretMatch(provided: string | string[] | undefined, e
 }
 
 export function requireInternalToken(req: Request, res: Response, next: NextFunction): void {
+  // WizMatch's cron/CI ingestion lane is retired in production. Fail before
+  // consulting any old secret so stale GitHub/Railway credentials cannot be
+  // used to wake the product back up accidentally. Local/test behavior stays
+  // available for historical verification until the dead code is removed.
+  if (process.env.NODE_ENV === 'production') {
+    res.status(410).json({ error: 'wizmatch_retired' });
+    return;
+  }
+
   const token = process.env.WIZMATCH_INTERNAL_TOKEN || process.env.OUTREACH_INTERNAL_SECRET;
   if (!token) {
     logger.error('[wizmatch] WIZMATCH_INTERNAL_TOKEN not set — blocking internal request');
