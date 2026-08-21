@@ -3,13 +3,12 @@ import { getWizmatchSourcingConfig } from './wizmatchSourcing';
 export const WIZMATCH_STAFFING_REMINDER_CRON = '47 3 * * 1-6';
 export const WIZMATCH_STAFFING_REMINDER_SCHEDULE = '09:17 IST Monday-Saturday';
 
-function enabled(value: string | undefined) {
-  return ['1', 'true', 'yes', 'on'].includes(String(value || '').trim().toLowerCase());
-}
-
-/** Compatibility parser retained for callers/tests during dead-code cleanup. */
-export function isWizmatchFlagEnabled(value: string | undefined): boolean {
-  return enabled(value);
+/**
+ * WizMatch is retired. This compatibility export intentionally ignores stale
+ * environment values so no caller can use a legacy flag to reactivate work.
+ */
+export function isWizmatchFlagEnabled(_value: string | undefined): boolean {
+  return false;
 }
 
 export interface WizmatchAutomationStatus {
@@ -36,12 +35,25 @@ export function nextStaffingReminderAt(now = new Date()): string {
 
 /**
  * WizMatch is retired in every environment. Stale environment variables can no
- * longer reactivate legacy cron, sending, prep, or staffing workloads.
+ * longer reactivate legacy cron, sending, preparation, staffing, or sourcing
+ * workloads. Provider configuration metadata is retained temporarily for
+ * cleanup diagnostics, but every execution switch is forced off.
  */
 export function getWizmatchAutomationStatus(
   env: NodeJS.ProcessEnv = process.env,
   _now = new Date(),
 ): WizmatchAutomationStatus {
+  const configuredSourcing = getWizmatchSourcingConfig(env);
+  const sourcing: ReturnType<typeof getWizmatchSourcingConfig> = {
+    ...configuredSourcing,
+    masterEnabled: false,
+    theirstackEnabled: false,
+    atsEnabled: false,
+    xrayEnabled: false,
+    pocDiscoveryEnabled: false,
+    execution: 'disabled',
+  };
+
   return {
     execution: 'disabled',
     masterEnabled: false,
@@ -53,6 +65,6 @@ export function getWizmatchAutomationStatus(
     autoPrepEnabled: false,
     schedule: WIZMATCH_STAFFING_REMINDER_SCHEDULE,
     nextExpectedRunAt: null,
-    sourcing: getWizmatchSourcingConfig(env),
+    sourcing,
   };
 }
