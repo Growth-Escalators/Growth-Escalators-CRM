@@ -19,6 +19,31 @@ export default defineConfig({
       'src/__tests__/**/*.test.js',
       'admin/src/**/__tests__/**/*.test.js',
     ],
+    // WizMatch is retired. These suites asserted the old live HTTP/mount
+    // contract and are intentionally superseded by wizmatchRetirementRoutes,
+    // wizmatchRouteRegistry and wizmatchTelemetryRegistry retirement tests.
+    // Pure service/domain tests remain enabled until those dead modules are
+    // physically removed in the follow-up cleanup.
+    exclude: [
+      'src/__tests__/wizmatchBulkActionRoutes.test.ts',
+      'src/__tests__/wizmatchClientDiscoverySignalsPolicy.test.ts',
+      'src/__tests__/wizmatchContactIntelligenceRoutes.test.ts',
+      'src/__tests__/wizmatchIndexMountOrder.test.ts',
+      'src/__tests__/wizmatchMachineSyncLaneMountIntegration.test.ts',
+      'src/__tests__/wizmatchOutreachRoutes.test.ts',
+      'src/__tests__/wizmatchPilotGateOnOutreachRouter.test.ts',
+      'src/__tests__/wizmatchPolicyRoutes.test.ts',
+      'src/__tests__/wizmatchPrepareRoutes.test.ts',
+      'src/__tests__/wizmatchQueuePaging.test.ts',
+      'src/__tests__/wizmatchRequirementDelete.test.ts',
+      'src/__tests__/wizmatchRequirementScopeBlock.test.ts',
+      'src/__tests__/wizmatchRequirementsFilters.test.ts',
+      'src/__tests__/wizmatchStaffingAccessRoute.test.ts',
+      'src/__tests__/wizmatchStaffingRoutes.test.ts',
+      'src/__tests__/wizmatchTelemetryRoutes.test.ts',
+      'src/__tests__/wizmatchTodayQueueCapabilityDispatch.test.ts',
+      'src/__tests__/wizmatchTodayRoutes.test.ts',
+    ],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'text-summary'],

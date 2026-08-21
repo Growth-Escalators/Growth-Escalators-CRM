@@ -1,23 +1,14 @@
+import { getWizmatchSourcingConfig } from './wizmatchSourcing';
+
 export const WIZMATCH_STAFFING_REMINDER_CRON = '47 3 * * 1-6';
 export const WIZMATCH_STAFFING_REMINDER_SCHEDULE = '09:17 IST Monday-Saturday';
 
-function enabled(value: string | undefined) {
-  return ['1', 'true', 'yes', 'on'].includes(String(value || '').trim().toLowerCase());
-}
-
 /**
- * The single reading of a WizMatch on/off env flag, exported so an HTTP route
- * gate and the cron that shares its flag cannot disagree.
- *
- * PR 6's review recorded M-D: the workbench UI accepted `1|true|yes|on` while
- * its backend required the exact string `'true'`. PR 7's flag had the same split
- * — `WIZMATCH_AUTO_PREP_ENABLED=1` started the CRON (which scrapes websites)
- * while both HTTP routes stayed 404, i.e. the automated side ran and the manual
- * side the operator would use to inspect it did not. Unset is still off; the
- * asymmetry is what is removed, not the default.
+ * WizMatch is retired. This compatibility export intentionally ignores stale
+ * environment values so no caller can use a legacy flag to reactivate work.
  */
-export function isWizmatchFlagEnabled(value: string | undefined): boolean {
-  return enabled(value);
+export function isWizmatchFlagEnabled(_value: string | undefined): boolean {
+  return false;
 }
 
 export interface WizmatchAutomationStatus {
@@ -28,7 +19,6 @@ export interface WizmatchAutomationStatus {
   staffingGateCEnabled: boolean;
   staffingRemindersEnabled: boolean;
   sendingEnabled: boolean;
-  /** PRD-005 §16 `WIZMATCH_AUTO_PREP_ENABLED` — gates `prepareCompaniesJob`'s cron (PR 7). */
   autoPrepEnabled: boolean;
   schedule: string;
   nextExpectedRunAt: string | null;
@@ -43,33 +33,38 @@ export function nextStaffingReminderAt(now = new Date()): string {
   return candidate.toISOString();
 }
 
+/**
+ * WizMatch is retired in every environment. Stale environment variables can no
+ * longer reactivate legacy cron, sending, preparation, staffing, or sourcing
+ * workloads. Provider configuration metadata is retained temporarily for
+ * cleanup diagnostics, but every execution switch is forced off.
+ */
 export function getWizmatchAutomationStatus(
   env: NodeJS.ProcessEnv = process.env,
-  now = new Date(),
+  _now = new Date(),
 ): WizmatchAutomationStatus {
-  // WizMatch was retired into Growth Escalators in August 2026. Keep the code
-  // available for local/test history, but production must stay hard-off even if
-  // stale Railway environment variables still exist. This avoids deleting any
-  // shared Railway service or database while guaranteeing no WizMatch cron,
-  // sourcing, sending, company-prep or staffing-reminder workload can start.
-  const retiredInProduction = env.NODE_ENV === 'production';
-  const masterEnabled = !retiredInProduction && env.DISABLE_BACKGROUND_JOBS !== 'true' && Boolean(env.WIZMATCH_TENANT_ID);
-  const legacyAutomationEnabled = masterEnabled && enabled(env.WIZMATCH_LEGACY_AUTOMATION_ENABLED);
-  const staffingAutomationRequested = enabled(env.WIZMATCH_STAFFING_AUTOMATION_ENABLED);
-  const staffingGateCEnabled = enabled(env.WIZMATCH_STAFFING_GATE_C_ENABLED);
-  const staffingRemindersEnabled = masterEnabled && staffingAutomationRequested && staffingGateCEnabled;
+  const configuredSourcing = getWizmatchSourcingConfig(env);
+  const sourcing: ReturnType<typeof getWizmatchSourcingConfig> = {
+    ...configuredSourcing,
+    masterEnabled: false,
+    theirstackEnabled: false,
+    atsEnabled: false,
+    xrayEnabled: false,
+    pocDiscoveryEnabled: false,
+    execution: 'disabled',
+  };
+
   return {
-    execution: masterEnabled ? 'web-in-process' : 'disabled',
-    masterEnabled,
-    legacyAutomationEnabled,
-    staffingAutomationRequested,
-    staffingGateCEnabled,
-    staffingRemindersEnabled,
-    sendingEnabled: !retiredInProduction && enabled(env.WIZMATCH_SENDING_ENABLED),
-    autoPrepEnabled: masterEnabled && enabled(env.WIZMATCH_AUTO_PREP_ENABLED),
+    execution: 'disabled',
+    masterEnabled: false,
+    legacyAutomationEnabled: false,
+    staffingAutomationRequested: false,
+    staffingGateCEnabled: false,
+    staffingRemindersEnabled: false,
+    sendingEnabled: false,
+    autoPrepEnabled: false,
     schedule: WIZMATCH_STAFFING_REMINDER_SCHEDULE,
-    nextExpectedRunAt: staffingRemindersEnabled ? nextStaffingReminderAt(now) : null,
-    sourcing: getWizmatchSourcingConfig(env),
+    nextExpectedRunAt: null,
+    sourcing,
   };
 }
-import { getWizmatchSourcingConfig } from './wizmatchSourcing';
