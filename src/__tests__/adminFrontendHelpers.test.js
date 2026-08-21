@@ -43,26 +43,22 @@ describe('admin tenant and pipeline outcome helpers', () => {
     expect(computeFlags('viewer', { staffingPilotAccess: true }, 'wizmatch').canStaffing).toBe(false);
   });
 
-  it('uses runtime staffing phases for navigation and fails closed by default', () => {
+  it('stale runtime staffing phases cannot resurrect retired WizMatch navigation', () => {
     const permissions = { staffingPilotAccess: true };
-    const hidden = getVisibleEntries('admin', permissions, 'wizmatch').map(entry => entry.id);
-    expect(hidden).not.toContain('companies');
-    expect(hidden).not.toContain('submissions');
-
+    const baseline = getVisibleEntries('admin', permissions, 'wizmatch').map(entry => entry.id);
     const phaseA = getVisibleEntries('admin', permissions, 'wizmatch', { A: true }).map(entry => entry.id);
-    expect(phaseA).toContain('companies');
-    expect(phaseA).not.toContain('submissions');
-
     const allPhases = getVisibleEntries('admin', permissions, 'wizmatch', { A: true, B: true, C: true }).map(entry => entry.id);
-    expect(allPhases).toContain('companies');
-    expect(allPhases).toContain('submissions');
+
+    expect(phaseA).toEqual(baseline);
+    expect(allPhases).toEqual(baseline);
+    for (const retiredId of ['companies', 'submissions', 'candidates', 'requirements', 'talent-matching']) {
+      expect(baseline).not.toContain(retiredId);
+      expect(phaseA).not.toContain(retiredId);
+      expect(allPhases).not.toContain(retiredId);
+    }
   });
 
   it('never surfaces pending-merge Wizmatch pages in nav, regardless of phase state', () => {
-    // My Work, etc. stay routed + alias-protected but are deliberately absent
-    // from Sidebar/CommandPalette until their Phase 2/3 entity merge lands —
-    // see wizmatchRouteRegistry.ts. (Talent Matching was promoted into nav so
-    // the actionable matcher is reachable — asserted separately below.)
     const permissions = { staffingPilotAccess: true };
     const allPhases = getVisibleEntries('admin', permissions, 'wizmatch', { A: true, B: true, C: true }).map(entry => entry.id);
     for (const pendingMergeId of [
@@ -73,29 +69,37 @@ describe('admin tenant and pipeline outcome helpers', () => {
     }
   });
 
-  it('surfaces Talent Matching in nav once staffing Phase B is on', () => {
+  it('keeps Talent Matching retired even when every stale staffing phase flag is on', () => {
     const permissions = { staffingPilotAccess: true, canStaffing: true, staffingPhaseB: true };
     const allPhases = getVisibleEntries('admin', permissions, 'wizmatch', { A: true, B: true, C: true }).map(entry => entry.id);
-    expect(allPhases).toContain('talent-matching');
+    expect(allPhases).not.toContain('talent-matching');
   });
 
-  it('buckets the unified Wizmatch "More" nav into primary vs. labeled subsections', () => {
-    const entries = getVisibleEntries('admin', { staffingPilotAccess: true }, 'wizmatch', { A: true, B: true, C: true });
-    const today = entries.find(e => e.id === 'today');
-    expect(today.group).toBeNull();
+  it('buckets only Growth CRM compatibility entries under labeled More subsections', () => {
+    const entries = getVisibleEntries(
+      'admin',
+      { staffingPilotAccess: true, billingView: true, isOwner: true, contractsView: true },
+      'wizmatch',
+      { A: true, B: true, C: true },
+      { gstBilling: true },
+    );
 
-    // Was `more-billing`. That entry is now deliberately hidden from the
-    // WizMatch sidebar (routable, but no `group`), so it is correctly absent
-    // from getVisibleEntries. `more-contracts` is the Finance-bucket entry that
-    // survives, and it preserves this test's actual intent: that a non-primary
-    // entry lands in the 'wizmatch-more' group under a labelled subsection.
-    const contracts = entries.find(e => e.id === 'more-contracts');
-    expect(contracts.group).toBe('wizmatch-more');
-    expect(contracts.moreSection).toBe('Finance');
+    expect(entries.find(e => e.id === 'today')).toBeUndefined();
+    expect(entries.every(e => e.group === 'wizmatch-more')).toBe(true);
 
-    const system = entries.find(e => e.id === 'more-system');
-    expect(system.group).toBe('wizmatch-more');
-    expect(system.moreSection).toBe('Administration');
+    const contacts = entries.find(e => e.id === 'more-contacts');
+    expect(contacts.group).toBe('wizmatch-more');
+    expect(contacts.moreSection).toBe('CRM Utilities');
+
+    const permissions = entries.find(e => e.id === 'more-permissions');
+    expect(permissions.group).toBe('wizmatch-more');
+    expect(permissions.moreSection).toBe('Administration');
+
+    const billing = entries.find(e => e.id === 'more-billing');
+    expect(billing.group).toBe('wizmatch-more');
+    expect(billing.moreSection).toBe('Finance');
+
+    expect(entries.find(e => e.id === 'more-system')).toBeUndefined();
   });
 
   it('normalizes server staffing access without trusting truthy strings', () => {

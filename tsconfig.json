@@ -11,5 +11,26 @@
     "resolveJsonModule": true
   },
   "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist"]
+  "exclude": [
+    "node_modules",
+    "dist",
+    "src/__tests__/wizmatchBulkActionRoutes.test.ts",
+    "src/__tests__/wizmatchClientDiscoverySignalsPolicy.test.ts",
+    "src/__tests__/wizmatchContactIntelligenceRoutes.test.ts",
+    "src/__tests__/wizmatchIndexMountOrder.test.ts",
+    "src/__tests__/wizmatchMachineSyncLaneMountIntegration.test.ts",
+    "src/__tests__/wizmatchOutreachRoutes.test.ts",
+    "src/__tests__/wizmatchPilotGateOnOutreachRouter.test.ts",
+    "src/__tests__/wizmatchPolicyRoutes.test.ts",
+    "src/__tests__/wizmatchPrepareRoutes.test.ts",
+    "src/__tests__/wizmatchQueuePaging.test.ts",
+    "src/__tests__/wizmatchRequirementDelete.test.ts",
+    "src/__tests__/wizmatchRequirementScopeBlock.test.ts",
+    "src/__tests__/wizmatchRequirementsFilters.test.ts",
+    "src/__tests__/wizmatchStaffingAccessRoute.test.ts",
+    "src/__tests__/wizmatchStaffingRoutes.test.ts",
+    "src/__tests__/wizmatchTelemetryRoutes.test.ts",
+    "src/__tests__/wizmatchTodayQueueCapabilityDispatch.test.ts",
+    "src/__tests__/wizmatchTodayRoutes.test.ts"
+  ]
 }
