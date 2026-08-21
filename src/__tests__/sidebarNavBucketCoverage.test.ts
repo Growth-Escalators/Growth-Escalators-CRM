@@ -3,10 +3,10 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 // @ts-ignore -- navEntries.js is intentionally plain JS; Vitest transpiles it.
 import { getVisibleEntries } from '../../admin/src/components/navEntries.js';
-import { WIZMATCH_ROUTES } from '../../admin/src/routes/wizmatchRouteRegistry.ts';
 
 const ADMIN = join(__dirname, '..', '..', 'admin', 'src');
 const sidebar = readFileSync(join(ADMIN, 'components', 'Sidebar.jsx'), 'utf8');
+const registry = readFileSync(join(ADMIN, 'routes', 'wizmatchRouteRegistry.ts'), 'utf8');
 
 function renderedGroupKeys(): string[] {
   const m = sidebar.match(/const map = \{([^}]*)\};\s*\n\s*for \(const e of visible\)/);
@@ -22,13 +22,33 @@ function renderedMoreSections(): string[] {
   return (m![1].match(/'([^']+)'/g) ?? []).map((s) => s.replace(/'/g, ''));
 }
 
+function registryBlocks(): string[] {
+  return registry.split(/\n\s*\{\s*\n/).slice(1);
+}
+
+function registryIds(): string[] {
+  return registryBlocks()
+    .map((block) => block.match(/\bid: '([^']+)'/)?.[1])
+    .filter((id): id is string => Boolean(id));
+}
+
+function registryPaths(): string[] {
+  return registryBlocks()
+    .map((block) => block.match(/\bpath: '([^']+)'/)?.[1])
+    .filter((path): path is string => Boolean(path));
+}
+
 describe('every grouped nav entry lands in a rendered bucket', () => {
   it("every compatibility entry's More section is rendered", () => {
     const sections = renderedMoreSections();
-    const orphans = WIZMATCH_ROUTES
-      .filter((route) => route.group && route.group !== 'primary')
-      .filter((route) => !route.moreSection || !sections.includes(route.moreSection))
-      .map((route) => route.id);
+    const orphans: string[] = [];
+    for (const block of registryBlocks()) {
+      const id = block.match(/\bid: '([^']+)'/)?.[1];
+      const group = block.match(/\bgroup: '([^']+)'/)?.[1];
+      const moreSection = block.match(/\bmoreSection: '([^']+)'/)?.[1];
+      if (!id || !group || group === 'primary') continue;
+      if (!moreSection || !sections.includes(moreSection)) orphans.push(id);
+    }
     expect(orphans).toEqual([]);
   });
 
@@ -83,7 +103,8 @@ describe('legacy wizmatch tenant exposes only Growth CRM compatibility navigatio
   });
 
   it('does not resurrect retired WizMatch product navigation', () => {
-    const retiredIds = [
+    const ids = registryIds();
+    for (const id of [
       'today',
       'job-leads',
       'companies',
@@ -99,13 +120,13 @@ describe('legacy wizmatch tenant exposes only Growth CRM compatibility navigatio
       'more-intelligence',
       'more-primes',
       'more-duplicates',
-    ];
-    const registryIds = WIZMATCH_ROUTES.map((route) => route.id);
-    for (const id of retiredIds) expect(registryIds).not.toContain(id);
+    ]) {
+      expect(ids).not.toContain(id);
+    }
   });
 
   it('compatibility entries point only at shared CRM pages', () => {
-    const paths = WIZMATCH_ROUTES.map((route) => route.path);
+    const paths = registryPaths();
     for (const retiredPath of [
       '/wizmatch/today',
       '/wizmatch/job-leads',
