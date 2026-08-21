@@ -1,19 +1,31 @@
 import { Router } from 'express';
 
 /**
- * Compatibility helper retained for generic callers/tests while the retired
- * WizMatch implementation is removed. It performs no WizMatch work.
+ * Compatibility helpers retained for generic callers/tests while the retired
+ * WizMatch implementation is removed. They perform no WizMatch work.
  */
 export function clampListLimit(raw: unknown, fallback: number, max: number): number {
   const value = Array.isArray(raw) ? raw[0] : raw;
   const parsed = typeof value === 'number'
     ? value
     : typeof value === 'string'
-      ? Number.parseInt(value, 10)
+      ? Number(value)
       : Number.NaN;
 
-  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
-  return Math.min(Math.floor(parsed), max);
+  if (!Number.isFinite(parsed) || parsed === 0) return fallback;
+  return Math.min(Math.max(Math.floor(parsed), 1), max);
+}
+
+export function clampListOffset(raw: unknown): number {
+  const value = Array.isArray(raw) ? raw[0] : raw;
+  const parsed = typeof value === 'number'
+    ? value
+    : typeof value === 'string'
+      ? Number(value)
+      : Number.NaN;
+
+  if (!Number.isFinite(parsed) || parsed <= 0) return 0;
+  return Math.floor(parsed);
 }
 
 const router = Router();
