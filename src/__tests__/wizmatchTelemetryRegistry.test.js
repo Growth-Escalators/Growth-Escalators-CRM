@@ -1,28 +1,29 @@
 import { describe, expect, it } from 'vitest';
 import { WIZMATCH_ROUTES } from '../../admin/src/routes/wizmatchRouteRegistry.ts';
-import { resolveRouteView } from '../../admin/src/lib/telemetry.js';
+import { resolveRouteView, sendRouteViewBeacon } from '../../admin/src/lib/telemetry.js';
 import { WIZMATCH_TELEMETRY_ROUTES } from '../routes/wizmatchTelemetry.ts';
 
 describe('WizMatch telemetry retirement boundary', () => {
-  it('keeps both retired registries empty', () => {
-    expect(WIZMATCH_ROUTES).toEqual([]);
+  it('keeps backend telemetry tracking retired while CRM compatibility routes may exist', () => {
+    expect(WIZMATCH_ROUTES.length).toBeGreaterThan(0);
     expect(WIZMATCH_TELEMETRY_ROUTES).toEqual([]);
   });
 
-  it('attributes no old WizMatch browser route, so the beacon has nothing to send', () => {
+  it('attributes no browser route, including shared CRM compatibility paths', () => {
     for (const [pathname, search = ''] of [
+      ['/wizmatch/contacts'],
+      ['/wizmatch/inbox'],
+      ['/wizmatch/billing'],
       ['/wizmatch/today'],
-      ['/wizmatch/signals'],
       ['/wizmatch/candidates', '?id=cand-123'],
-      ['/wizmatch/system', '?tab=sourcing'],
-      ['/wizmatch/telemetry'],
+      ['/dashboard'],
+      ['/login'],
     ]) {
       expect(resolveRouteView(pathname, search)).toBeNull();
     }
   });
 
-  it('continues to ignore non-WizMatch pages', () => {
-    expect(resolveRouteView('/dashboard', '')).toBeNull();
-    expect(resolveRouteView('/login', '')).toBeNull();
+  it('keeps the beacon sender as a harmless compatibility no-op', () => {
+    expect(sendRouteViewBeacon('anything', '/wizmatch/contacts')).toBeUndefined();
   });
 });
