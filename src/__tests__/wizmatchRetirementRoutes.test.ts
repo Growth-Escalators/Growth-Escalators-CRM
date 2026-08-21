@@ -21,17 +21,24 @@ async function requestRetiredRouter(router: Router, path = '/api/wizmatch/legacy
   await new Promise<void>((resolve) => {
     server = app.listen(0, '127.0.0.1', () => resolve());
   });
-  const port = (server.address() as AddressInfo).port;
+
+  const activeServer = server;
+  if (!activeServer) throw new Error('retirement test server did not start');
+  const address = activeServer.address();
+  if (!address || typeof address === 'string') throw new Error('retirement test server has no TCP address');
+
+  const port = (address as AddressInfo).port;
   const response = await fetch(`http://127.0.0.1:${port}${path}`);
   const body = await response.json() as { error?: string; message?: string };
-  await new Promise<void>((resolve, reject) => server!.close((error) => error ? reject(error) : resolve()));
+  await new Promise<void>((resolve) => activeServer.close(() => resolve()));
   server = undefined;
   return { response, body };
 }
 
 afterEach(async () => {
-  if (!server) return;
-  await new Promise<void>((resolve) => server!.close(() => resolve()));
+  const activeServer = server;
+  if (!activeServer) return;
+  await new Promise<void>((resolve) => activeServer.close(() => resolve()));
   server = undefined;
 });
 
