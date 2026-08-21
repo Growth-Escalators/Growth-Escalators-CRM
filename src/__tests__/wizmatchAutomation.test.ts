@@ -1,64 +1,68 @@
 import { describe, expect, it } from 'vitest';
-import { getWizmatchAutomationStatus, nextStaffingReminderAt } from '../services/wizmatchAutomation';
+import {
+  getWizmatchAutomationStatus,
+  isWizmatchFlagEnabled,
+  nextStaffingReminderAt,
+} from '../services/wizmatchAutomation';
 
-describe('Wizmatch automation isolation', () => {
-  const base = {
+describe('WizMatch retirement automation boundary', () => {
+  const staleFullyEnabledEnv = {
     WIZMATCH_TENANT_ID: 'tenant-wizmatch',
     DISABLE_BACKGROUND_JOBS: 'false',
+    WIZMATCH_LEGACY_AUTOMATION_ENABLED: 'true',
+    WIZMATCH_STAFFING_AUTOMATION_ENABLED: 'true',
+    WIZMATCH_STAFFING_GATE_C_ENABLED: 'true',
+    WIZMATCH_SENDING_ENABLED: 'true',
+    WIZMATCH_AUTO_PREP_ENABLED: 'true',
+    WIZMATCH_SOURCE_AUTOMATION_ENABLED: 'true',
+    WIZMATCH_THEIRSTACK_IMPORT_ENABLED: 'true',
+    WIZMATCH_ATS_POLLING_ENABLED: 'true',
+    WIZMATCH_XRAY_CANDIDATE_ENABLED: 'true',
+    WIZMATCH_POC_DISCOVERY_ENABLED: 'true',
+    THEIRSTACK_API_KEY: 'stale-key',
+    SEARCHAPI_API_KEY: 'stale-key',
   } as NodeJS.ProcessEnv;
 
-  it('defaults both legacy and staffing automation off', () => {
-    expect(getWizmatchAutomationStatus(base)).toMatchObject({
-      execution: 'web-in-process',
-      masterEnabled: true,
+  it('fails every legacy flag closed even when an old environment value is truthy', () => {
+    for (const value of ['1', 'true', 'yes', 'on', 'TRUE']) {
+      expect(isWizmatchFlagEnabled(value)).toBe(false);
+    }
+  });
+
+  it('cannot be reactivated by stale production environment variables', () => {
+    expect(getWizmatchAutomationStatus(staleFullyEnabledEnv)).toMatchObject({
+      execution: 'disabled',
+      masterEnabled: false,
+      legacyAutomationEnabled: false,
+      staffingAutomationRequested: false,
+      staffingGateCEnabled: false,
+      staffingRemindersEnabled: false,
+      sendingEnabled: false,
+      autoPrepEnabled: false,
+      nextExpectedRunAt: null,
+      sourcing: {
+        masterEnabled: false,
+        theirstackEnabled: false,
+        atsEnabled: false,
+        xrayEnabled: false,
+        pocDiscoveryEnabled: false,
+        execution: 'disabled',
+      },
+    });
+  });
+
+  it('remains disabled with an empty environment too', () => {
+    expect(getWizmatchAutomationStatus({} as NodeJS.ProcessEnv)).toMatchObject({
+      execution: 'disabled',
+      masterEnabled: false,
       legacyAutomationEnabled: false,
       staffingRemindersEnabled: false,
       sendingEnabled: false,
+      autoPrepEnabled: false,
     });
   });
 
-  it('requires both the staffing flag and Gate C', () => {
-    expect(getWizmatchAutomationStatus({ ...base, WIZMATCH_STAFFING_AUTOMATION_ENABLED: 'true' }).staffingRemindersEnabled).toBe(false);
-    expect(getWizmatchAutomationStatus({ ...base, WIZMATCH_STAFFING_GATE_C_ENABLED: 'true' }).staffingRemindersEnabled).toBe(false);
-    expect(getWizmatchAutomationStatus({
-      ...base,
-      WIZMATCH_STAFFING_AUTOMATION_ENABLED: 'true',
-      WIZMATCH_STAFFING_GATE_C_ENABLED: 'true',
-    }).staffingRemindersEnabled).toBe(true);
-  });
-
-  it('keeps legacy automation independent and default-off', () => {
-    const status = getWizmatchAutomationStatus({
-      ...base,
-      WIZMATCH_LEGACY_AUTOMATION_ENABLED: 'true',
-      WIZMATCH_STAFFING_AUTOMATION_ENABLED: 'true',
-      WIZMATCH_STAFFING_GATE_C_ENABLED: 'true',
-    });
-    expect(status.legacyAutomationEnabled).toBe(true);
-    expect(status.staffingRemindersEnabled).toBe(true);
-  });
-
-  it('keeps results-first sourcing independent from legacy automation', () => {
-    const status = getWizmatchAutomationStatus({
-      ...base,
-      WIZMATCH_SOURCE_AUTOMATION_ENABLED: 'true',
-      WIZMATCH_ATS_POLLING_ENABLED: 'true',
-    });
-    expect(status.legacyAutomationEnabled).toBe(false);
-    expect(status.sourcing).toMatchObject({ masterEnabled: true, atsEnabled: true, theirstackEnabled: false });
-  });
-
-  it('honors the master background-job gate', () => {
-    expect(getWizmatchAutomationStatus({
-      ...base,
-      DISABLE_BACKGROUND_JOBS: 'true',
-      WIZMATCH_LEGACY_AUTOMATION_ENABLED: 'true',
-      WIZMATCH_STAFFING_AUTOMATION_ENABLED: 'true',
-      WIZMATCH_STAFFING_GATE_C_ENABLED: 'true',
-    })).toMatchObject({ execution: 'disabled', masterEnabled: false, legacyAutomationEnabled: false, staffingRemindersEnabled: false });
-  });
-
-  it('reports the next non-Sunday 09:17 IST run', () => {
+  it('keeps the old reminder-time helper deterministic only for import compatibility', () => {
     expect(nextStaffingReminderAt(new Date('2026-07-18T04:00:00.000Z'))).toBe('2026-07-20T03:47:00.000Z');
     expect(nextStaffingReminderAt(new Date('2026-07-20T03:00:00.000Z'))).toBe('2026-07-20T03:47:00.000Z');
   });
