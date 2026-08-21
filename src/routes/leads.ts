@@ -116,12 +116,15 @@ router.post('/agency', async (req: Request, res: Response): Promise<void> => {
 // own email/log fallback; this route only makes the CRM the canonical lead
 // record and stores the minimal attribution envelope agreed for reporting.
 //
-// If WEBSITE_LEAD_INGEST_SECRET is configured, callers must send the same
-// value in x-ge-lead-secret. Keeping the check optional allows a zero-downtime
-// rollout before both services have the secret configured.
+// Production fails closed unless WEBSITE_LEAD_INGEST_SECRET is configured.
+// Callers must send the same value in x-ge-lead-secret.
 // ---------------------------------------------------------------------------
 router.post('/website', async (req: Request, res: Response): Promise<void> => {
   const configuredSecret = cleanString(process.env.WEBSITE_LEAD_INGEST_SECRET, 1000);
+  if (process.env.NODE_ENV === 'production' && !configuredSecret) {
+    res.status(503).json({ error: 'website lead intake is not configured' });
+    return;
+  }
   if (configuredSecret && req.get('x-ge-lead-secret') !== configuredSecret) {
     res.status(401).json({ error: 'invalid website lead secret' });
     return;
