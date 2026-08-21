@@ -22,6 +22,7 @@ const router = Router();
  * WizMatch has been retired from Growth Escalators CRM.
  * Keep the old API prefix terminal during the cleanup window so stale clients,
  * bookmarks, scheduled callers, and integrations cannot execute legacy logic.
+ * This is intentionally a retirement boundary, not a replacement feature.
  */
 router.use((_req, res) => {
   res.status(410).json({
