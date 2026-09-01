@@ -56,6 +56,11 @@ export const contacts = pgTable(
     notes: text('notes'),
     metadata: jsonb('metadata').default({}),
     optedInWa: boolean('opted_in_wa').default(false),
+    waConsentAt: timestamp('wa_consent_at'),
+    waConsentTextVersion: text('wa_consent_text_version'),
+    waConsentSource: text('wa_consent_source'),
+    waOptOutAt: timestamp('wa_opt_out_at'),
+    waOptOutReason: text('wa_opt_out_reason'),
     optedInEmail: boolean('opted_in_email').default(false),
     doNotContact: boolean('do_not_contact').default(false),
     lastContactedAt: timestamp('last_contacted_at'),
@@ -3897,5 +3902,55 @@ export const userPermissionOverrides = pgTable(
       t.userId, t.permission,
     ),
     effectChk: check('user_permission_overrides_effect_chk', sql`effect IN ('grant','revoke')`),
+  }),
+);
+
+// ---------------------------------------------------------------------------
+// wa_lead_acks — WhatsApp acknowledgement ledger for website leads.
+//
+// Keyed by the `events` row that POST /api/leads/website already writes per
+// submission (eventType 'website_lead_submitted'). Deliberately NOT a second
+// lead table: the contact is the lead, the event is the submission, and this
+// only records what happened to the one automated WhatsApp message for it.
+// ---------------------------------------------------------------------------
+export const waLeadAcks = pgTable(
+  'wa_lead_acks',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    eventId: uuid('event_id').notNull().references(() => events.id),
+    // pending | queued | sent | delivered | read | replied | opted_out
+    // | skipped_no_consent | skipped_duplicate | skipped_budget
+    // | skipped_test_mode | skipped_disabled | skipped_wrong_tenant
+    // | failed_retryable | failed_permanent
+    status: text('status').notNull().default('pending'),
+    reason: text('reason'),
+    messageId: text('message_id'),
+    createdAt: timestamp('created_at').defaultNow(),
+    updatedAt: timestamp('updated_at').defaultNow(),
+  },
+  (t) => ({
+    eventIdx: uniqueIndex('wa_lead_acks_event_id_idx').on(t.eventId),
+    statusIdx: index('wa_lead_acks_status_idx').on(t.status),
+    messageIdx: index('wa_lead_acks_message_id_idx').on(t.messageId),
+  }),
+);
+
+// ---------------------------------------------------------------------------
+// wa_monthly_usage — automated-send counter per tenant per calendar month.
+// Backs the warning and hard-stop thresholds. Only AUTOMATED sends increment
+// this; human replies from the inbox or the Business App are never counted and
+// never blocked.
+// ---------------------------------------------------------------------------
+export const waMonthlyUsage = pgTable(
+  'wa_monthly_usage',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    tenantId: uuid('tenant_id').notNull().references(() => tenants.id),
+    yearMonth: text('year_month').notNull(), // 'YYYY-MM'
+    sentCount: integer('sent_count').default(0).notNull(),
+    updatedAt: timestamp('updated_at').defaultNow(),
+  },
+  (t) => ({
+    tenantMonthIdx: uniqueIndex('wa_monthly_usage_tenant_month_idx').on(t.tenantId, t.yearMonth),
   }),
 );

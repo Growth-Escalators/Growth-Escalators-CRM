@@ -379,6 +379,13 @@
       "when": 1786078120660,
       "tag": "0053_mature_king_cobra",
       "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1788262982346,
+      "tag": "0054_chief_corsair",
+      "breakpoints": true
     }
   ]
 }

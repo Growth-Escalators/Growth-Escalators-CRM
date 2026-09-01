@@ -6,6 +6,10 @@ import { sendSlackMessage } from '../services/slackService';
 import { getDefaultIngestTenant } from '../services/tenantFeatures';
 import { SLACK_SALES_BD_CHANNEL } from '../config/constants';
 import logger from '../utils/logger';
+import { parsePhone } from '../services/phoneService';
+import { assignLead } from '../services/leadAssignmentService';
+import { enqueueAck } from '../services/whatsapp/leadAckService';
+import { WA_CONSENT_TEXT_VERSION } from '../config/constants';
 
 const router = Router();
 
@@ -156,6 +160,29 @@ router.post('/website', async (req: Request, res: Response): Promise<void> => {
     const service = cleanString(req.body?.service, 200);
     const capturedAt = cleanString(req.body?.receivedAt, 100) || new Date().toISOString();
 
+    // --- WhatsApp acknowledgement inputs ---------------------------------
+    // Region defaulting per the agreed rule: assume India ONLY when the form
+    // is India-targeted. International forms carry a `market`, so for those we
+    // pass no hint and a bare national number is rejected rather than guessed
+    // into the wrong country.
+    const market = cleanString(req.body?.market, 40);
+    const regionHint = market ? undefined : 'IN';
+    const parsedPhone = phone ? parsePhone(phone, regionHint) : null;
+    const phoneE164 = parsedPhone && parsedPhone.ok ? parsedPhone.e164 : null;
+
+    const whatsappConsent = cleanBoolean(req.body?.whatsappConsent);
+    const consentTextVersion =
+      cleanString(req.body?.whatsappConsentVersion, 60) || WA_CONSENT_TEXT_VERSION;
+    const preferredCallTime = cleanString(req.body?.preferredCallTime, 120);
+
+    const { bucket, assignedTo } = assignLead({
+      service,
+      source: cleanString(req.body?.source, 200),
+      landingPage: cleanString(req.body?.landingPageRoute, 300),
+      market: market || null,
+      formType,
+    });
+
     const attribution = {
       firstLandingPage: cleanString(req.body?.firstLandingPage, 300),
       conversionPage: cleanString(req.body?.landingPageRoute, 300),
@@ -187,6 +214,9 @@ router.post('/website', async (req: Request, res: Response): Promise<void> => {
       timeline: cleanString(req.body?.timeline, 150),
       message: cleanString(req.body?.message, 4000),
       sourceLabel: cleanString(req.body?.source, 200),
+      preferredCallTime,
+      market,
+      assignedBucket: bucket,
       capturedAt,
     };
 
@@ -255,13 +285,22 @@ router.post('/website', async (req: Request, res: Response): Promise<void> => {
         latestWebsiteLead: leadSummary,
         websiteLeadCount: created ? Math.max(priorCount, 1) : priorCount + 1,
       },
+      assignedTo: assignedTo ?? current?.assignedTo ?? undefined,
+      ...(whatsappConsent && !current?.doNotContact
+        ? {
+            optedInWa: true,
+            waConsentAt: now,
+            waConsentTextVersion: consentTextVersion,
+            waConsentSource: cleanString(req.body?.source, 200) || 'website',
+          }
+        : {}),
       lastActivityAt: now,
       updatedAt: now,
     }).where(eq(contacts.id, contact.id));
 
     // One event per successful website form submit: enough to preserve repeat
     // conversions without recording every page view or click in the CRM.
-    await db.insert(events).values({
+    const [submissionEvent] = await db.insert(events).values({
       tenantId: tenant.id,
       contactId: contact.id,
       eventType: 'website_lead_submitted',
@@ -272,15 +311,41 @@ router.post('/website', async (req: Request, res: Response): Promise<void> => {
         businessVertical,
         service,
         attribution,
+        whatsappConsent,
+        consentTextVersion: whatsappConsent ? consentTextVersion : null,
+        preferredCallTime,
+        assignedBucket: bucket,
       },
       occurredAt: now,
-    });
+    }).returning();
 
+    // Respond BEFORE any outbound integration. Nothing below can delay or
+    // fail the visitor submission.
     res.json({ ok: true, contactId: contact.id, created });
+
+    // Queue the WhatsApp acknowledgement. Fire-and-forget and internally
+    // guarded: enqueueAck never throws, and the policy gate in the worker
+    // decides whether anything is actually sent.
+    if (submissionEvent) {
+      void enqueueAck({
+        eventId: submissionEvent.id,
+        tenantId: tenant.id,
+        contactId: contact.id,
+        firstName: parts[0] ?? name,
+        service: service || businessVertical || 'your enquiry',
+        assignedTo,
+        phoneSubmitted: phone,
+        phoneE164,
+        regionHint,
+        consentGiven: whatsappConsent,
+      }).catch(() => {});
+    }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     logger.error({ err: msg }, '[leads/website] failed');
-    res.status(500).json({ error: 'website lead intake failed' });
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'website lead intake failed' });
+    }
   }
 });
 

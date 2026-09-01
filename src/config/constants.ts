@@ -125,3 +125,52 @@ export function passesIndiaOnlyIngestion(location?: string | null): boolean {
   if (!WIZMATCH_INDIA_ONLY) return true;
   return !isConfidentUsLocation(location);
 }
+
+// --- Website lead consent ---------------------------------------------------
+/**
+ * The exact consent wording shown on the website checkbox, pinned as a version
+ * so a later reword does not retroactively change what a stored consent means.
+ * Must match WA_CONSENT_TEXT_VERSION in components/landing/WhatsAppConsent.tsx
+ * on the marketing site.
+ */
+export const WA_CONSENT_TEXT_VERSION = process.env.WA_CONSENT_TEXT_VERSION ?? 'ge-wa-consent-v1';
+
+// --- WhatsApp automation (Kapso) --------------------------------------------
+export const KAPSO_API_KEY = process.env.KAPSO_API_KEY ?? '';
+export const KAPSO_BASE_URL = process.env.KAPSO_BASE_URL ?? 'https://api.kapso.ai';
+export const KAPSO_PHONE_NUMBER_ID = process.env.KAPSO_PHONE_NUMBER_ID ?? '';
+export const KAPSO_WEBHOOK_SECRET = process.env.KAPSO_WEBHOOK_SECRET ?? '';
+export const KAPSO_TEMPLATE_NAME = process.env.KAPSO_TEMPLATE_NAME ?? 'website_enquiry_received';
+export const KAPSO_TEMPLATE_LANGUAGE = process.env.KAPSO_TEMPLATE_LANGUAGE ?? 'en';
+export const KAPSO_GRAPH_VERSION = process.env.KAPSO_GRAPH_VERSION ?? 'v24.0';
+
+/** Master kill switch. Must be exactly 'true' — absent means OFF. */
+export const WHATSAPP_AUTOMATION_ENABLED = process.env.WHATSAPP_AUTOMATION_ENABLED === 'true';
+
+/** Test mode: only allowlisted numbers receive real messages. Defaults ON. */
+export const WHATSAPP_TEST_MODE = process.env.WHATSAPP_TEST_MODE !== 'false';
+export const WHATSAPP_TEST_ALLOWLIST = (process.env.WHATSAPP_TEST_ALLOWLIST ?? '')
+  .split(',')
+  .map((n) => n.trim())
+  .filter(Boolean);
+
+export const WHATSAPP_MONTHLY_WARN_THRESHOLD = Number(process.env.WHATSAPP_MONTHLY_WARN_THRESHOLD ?? '1200');
+/** Below Kapso's 2,000/month free tier on purpose — fail closed, not into a bill. */
+export const WHATSAPP_MONTHLY_HARD_LIMIT = Number(process.env.WHATSAPP_MONTHLY_HARD_LIMIT ?? '1800');
+
+/** One automated acknowledgement per contact per this window. */
+export const WA_ACK_COOLDOWN_HOURS = Number(process.env.WA_ACK_COOLDOWN_HOURS ?? '24');
+
+/**
+ * Service -> BD owner routing for website leads. Values are the same
+ * identifiers the rest of the CRM stores in contacts.assigned_to. Configured by
+ * env so no employee identity is hardcoded across files.
+ */
+export const BD_MARKETING = process.env.BD_MARKETING ?? '';
+export const BD_D2C = process.env.BD_D2C ?? '';
+export const BD_TECHNOLOGY = process.env.BD_TECHNOLOGY ?? '';
+export const BD_STAFFING = process.env.BD_STAFFING ?? '';
+export const BD_GENERAL = process.env.BD_GENERAL ?? '';
+
+/** Base URL used to build direct CRM links in notifications. */
+export const CRM_APP_BASE_URL = process.env.CRM_APP_BASE_URL ?? 'https://api.growthescalators.com/admin';
