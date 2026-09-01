@@ -139,7 +139,19 @@ export async function sendTemplate(
     const metaError = (parsed.error ?? {}) as { code?: number; message?: string; type?: string };
     const code = typeof metaError.code === 'number' ? metaError.code : undefined;
     // Truncate and never echo the destination number back into the log line.
-    const detail = `${res.status}${code ? `/${code}` : ''}: ${(metaError.message ?? text).slice(0, 180)}`;
+    let detail = `${res.status}${code ? `/${code}` : ''}: ${(metaError.message ?? text).slice(0, 180)}`;
+
+    /**
+     * Meta returns a bare "(#100) Invalid parameter" for a wide range of
+     * unrelated mistakes and names none of them. Attach the checklist so the
+     * log line is actionable rather than a dead end.
+     */
+    if (code === 100) {
+      detail +=
+        ' — check: recipient is not the sending number; template name, language'
+        + ' and parameter style (NAMED vs positional) match the approved template;'
+        + ' parameter names match exactly';
+    }
 
     const permanentByCode = code !== undefined && PERMANENT_META_CODES.has(code);
     const permanentByStatus = res.status === 400 || res.status === 401 || res.status === 403 || res.status === 404;

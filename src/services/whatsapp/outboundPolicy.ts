@@ -8,6 +8,7 @@ import {
   WHATSAPP_MONTHLY_HARD_LIMIT,
   WHATSAPP_MONTHLY_WARN_THRESHOLD,
   WA_ACK_COOLDOWN_HOURS,
+  KAPSO_SENDER_E164,
 } from '../../config/constants';
 import { parsePhone } from '../phoneService';
 import logger from '../../utils/logger';
@@ -36,6 +37,7 @@ export type PolicySkipStatus =
   | 'skipped_duplicate'
   | 'skipped_budget'
   | 'skipped_test_mode'
+  | 'skipped_self_send'
   | 'failed_permanent';
 
 function currentYearMonth(now = new Date()): string {
@@ -137,7 +139,24 @@ export async function evaluate(params: {
     };
   }
 
-  // 7. Monthly budget. Fails closed below the Kapso free-tier ceiling.
+  /**
+   * 7. Never message our own number. Meta's rejection for this is the generic
+   *    "(#100) Invalid parameter", which the client classifies as permanent —
+   *    so without this the acknowledgement fails silently and the log names
+   *    nothing useful. Cheap check, saves a long hunt.
+   */
+  if (KAPSO_SENDER_E164) {
+    const digits = (v: string) => v.replace(/\D/g, '');
+    if (digits(e164) === digits(KAPSO_SENDER_E164)) {
+      return {
+        allowed: false,
+        status: 'skipped_self_send',
+        reason: 'destination is the sending number — WhatsApp cannot message itself',
+      };
+    }
+  }
+
+  // 8. Monthly budget. Fails closed below the Kapso free-tier ceiling.
   const usage = await getMonthlyUsage(params.tenantId);
   if (usage >= WHATSAPP_MONTHLY_HARD_LIMIT) {
     return {
@@ -147,7 +166,7 @@ export async function evaluate(params: {
     };
   }
 
-  // 8. Test mode last, so everything above is exercised in staging exactly as
+  // 9. Test mode last, so everything above is exercised in staging exactly as
   //    it will run in production.
   if (WHATSAPP_TEST_MODE) {
     const allowed = WHATSAPP_TEST_ALLOWLIST.some((n) => n.replace(/^\+/, '') === e164.replace(/^\+/, ''));

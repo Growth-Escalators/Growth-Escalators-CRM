@@ -1,5 +1,6 @@
 import { pool } from '../db/index';
 import logger from '../utils/logger';
+import { redactPhone } from './phoneService';
 import { DEFAULT_TENANT_SLUG } from '../config/constants';
 
 // ---------------------------------------------------------------------------
@@ -74,7 +75,8 @@ export async function sendWhatsAppMessage(to: string, text: string): Promise<boo
       logger.error(`[whatsapp-send] WhatsApp send failed ${res.status}:`, err.slice(0, 200));
       return false;
     }
-    logger.info(`[whatsapp-send] WhatsApp sent to ${phone}`);
+    // Never put a full customer number in the logs.
+    logger.info(`[whatsapp-send] WhatsApp sent to ${redactPhone(phone)}`);
     return true;
   } catch (e) {
     logger.error('[whatsapp-send] WhatsApp send error:', e instanceof Error ? e.message : String(e));
