@@ -501,3 +501,46 @@ describe('template parameter style', () => {
     expect('parameter_name' in vars[1]).toBe(false);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Environment flag parsing
+// ---------------------------------------------------------------------------
+describe('env flag parsing', () => {
+  it('treats a value with surrounding whitespace as set', async () => {
+    setEnv({ WHATSAPP_AUTOMATION_ENABLED: ' true' });
+    vi.resetModules();
+    queuePolicyReads({});
+    sendTemplateMock.mockResolvedValue({ ok: true, messageId: 'wamid.WS' });
+    const { processAckJob } = await import('../services/whatsapp/leadAckService');
+    expect(await processAckJob(JOB)).toBe('sent');
+  });
+
+  it('accepts 1 / yes / on as well as true', async () => {
+    for (const v of ['1', 'yes', 'ON', ' True ']) {
+      setEnv({ WHATSAPP_AUTOMATION_ENABLED: v });
+      vi.resetModules();
+      queuePolicyReads({});
+      sendTemplateMock.mockResolvedValue({ ok: true, messageId: 'wamid.X' });
+      const { processAckJob } = await import('../services/whatsapp/leadAckService');
+      expect(await processAckJob(JOB), v).toBe('sent');
+    }
+  });
+
+  it('still treats anything else as off', async () => {
+    for (const v of ['', 'false', 'no', 'off', '0', 'nope']) {
+      setEnv({ WHATSAPP_AUTOMATION_ENABLED: v });
+      vi.resetModules();
+      const { processAckJob } = await import('../services/whatsapp/leadAckService');
+      expect(await processAckJob(JOB), v).toBe('skipped_disabled');
+    }
+  });
+
+  it('test mode stays on unless explicitly disabled, whitespace tolerant', async () => {
+    setEnv({ WHATSAPP_TEST_MODE: ' false ' });
+    vi.resetModules();
+    queuePolicyReads({});
+    sendTemplateMock.mockResolvedValue({ ok: true, messageId: 'wamid.TM' });
+    const { processAckJob } = await import('../services/whatsapp/leadAckService');
+    expect(await processAckJob(JOB)).toBe('sent');
+  });
+});
