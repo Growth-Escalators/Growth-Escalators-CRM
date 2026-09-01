@@ -160,11 +160,24 @@ export const KAPSO_TEMPLATE_PARAM_NAMES = (process.env.KAPSO_TEMPLATE_PARAM_NAME
   .map((n) => n.trim())
   .filter(Boolean);
 
-/** Master kill switch. Must be exactly 'true' — absent means OFF. */
-export const WHATSAPP_AUTOMATION_ENABLED = process.env.WHATSAPP_AUTOMATION_ENABLED === 'true';
+/**
+ * Truthy-flag parsing that tolerates the whitespace a dashboard paste leaves
+ * behind. A value of " true" reading as false cost a production outage that
+ * was invisible from every log — the send simply recorded skipped_disabled.
+ * Mirrors isJobDrainerEnabled() in services/jobDrainer.ts, which already got
+ * this right.
+ */
+function envFlag(raw: string | undefined): boolean {
+  return ['1', 'true', 'yes', 'on'].includes(String(raw ?? '').trim().toLowerCase());
+}
+
+/** Master kill switch. Absent means OFF. */
+export const WHATSAPP_AUTOMATION_ENABLED = envFlag(process.env.WHATSAPP_AUTOMATION_ENABLED);
 
 /** Test mode: only allowlisted numbers receive real messages. Defaults ON. */
-export const WHATSAPP_TEST_MODE = process.env.WHATSAPP_TEST_MODE !== 'false';
+export const WHATSAPP_TEST_MODE = !['0', 'false', 'no', 'off'].includes(
+  String(process.env.WHATSAPP_TEST_MODE ?? '').trim().toLowerCase(),
+);
 export const WHATSAPP_TEST_ALLOWLIST = (process.env.WHATSAPP_TEST_ALLOWLIST ?? '')
   .split(',')
   .map((n) => n.trim())
