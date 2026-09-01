@@ -33,6 +33,12 @@ export type SendOutcome =
 export interface TemplateVariable {
   type: 'text';
   text: string;
+  /**
+   * Set only for templates created with NAMED parameters. Meta matches on the
+   * name rather than array position, and rejects the send outright if the
+   * style does not match the template's parameter_format.
+   */
+  parameter_name?: string;
 }
 
 const REQUEST_TIMEOUT_MS = Number(process.env.KAPSO_TIMEOUT_MS ?? '10000');
