@@ -144,6 +144,22 @@ export const KAPSO_TEMPLATE_NAME = process.env.KAPSO_TEMPLATE_NAME ?? 'website_e
 export const KAPSO_TEMPLATE_LANGUAGE = process.env.KAPSO_TEMPLATE_LANGUAGE ?? 'en';
 export const KAPSO_GRAPH_VERSION = process.env.KAPSO_GRAPH_VERSION ?? 'v24.0';
 
+/**
+ * Body parameter names, in order, when the approved template was created with
+ * NAMED parameters ({{customer_name}}) rather than positional ones ({{1}}).
+ *
+ * Meta rejects a send whose parameter style does not match the template, and
+ * classifies it as a permanent error — so a mismatch fails instantly and never
+ * retries. Names must match the template EXACTLY.
+ *
+ * Leave empty for a positional template. Example:
+ *   KAPSO_TEMPLATE_PARAM_NAMES=customer_name,service_name,assignee_name
+ */
+export const KAPSO_TEMPLATE_PARAM_NAMES = (process.env.KAPSO_TEMPLATE_PARAM_NAMES ?? '')
+  .split(',')
+  .map((n) => n.trim())
+  .filter(Boolean);
+
 /** Master kill switch. Must be exactly 'true' — absent means OFF. */
 export const WHATSAPP_AUTOMATION_ENABLED = process.env.WHATSAPP_AUTOMATION_ENABLED === 'true';
 

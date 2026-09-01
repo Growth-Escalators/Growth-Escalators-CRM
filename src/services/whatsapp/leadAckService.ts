@@ -1,7 +1,11 @@
 import { and, eq, lte, or, sql } from 'drizzle-orm';
 import { db, jobs, messages, waLeadAcks } from '../../db/index';
 import { insertJob, completeJob, failJob } from '../jobQueue';
-import { KAPSO_TEMPLATE_NAME, KAPSO_TEMPLATE_LANGUAGE } from '../../config/constants';
+import {
+  KAPSO_TEMPLATE_NAME,
+  KAPSO_TEMPLATE_LANGUAGE,
+  KAPSO_TEMPLATE_PARAM_NAMES,
+} from '../../config/constants';
 import { assigneeDisplayName } from '../leadAssignmentService';
 import { redactPhone } from '../phoneService';
 import * as policy from './outboundPolicy';
@@ -63,13 +67,28 @@ export function sanitizeVariable(raw: string, fallback: string, maxLength = 60):
   return cleaned.length > maxLength ? `${cleaned.slice(0, maxLength - 1).trim()}…` : cleaned;
 }
 
-/** Build the three approved template variables with safe fallbacks. */
+/**
+ * Build the three approved template variables with safe fallbacks.
+ *
+ * Supports both template parameter styles. A template created with NAMED
+ * parameters ({{customer_name}}) must be sent with a parameter_name on every
+ * parameter; a positional template ({{1}}) must be sent without them. Meta
+ * treats a mismatch as a permanent error, so this is configuration, not a
+ * detail — set KAPSO_TEMPLATE_PARAM_NAMES to the template's names in order.
+ */
 export function buildVariables(payload: Pick<AckJobPayload, 'firstName' | 'service' | 'assignedTo'>) {
-  return [
-    { type: 'text' as const, text: sanitizeVariable(payload.firstName.split(/\s+/)[0] ?? '', 'there', 40) },
-    { type: 'text' as const, text: sanitizeVariable(payload.service, 'your enquiry', 60) },
-    { type: 'text' as const, text: sanitizeVariable(assigneeDisplayName(payload.assignedTo), 'our team', 40) },
+  const values = [
+    sanitizeVariable(payload.firstName.split(/\s+/)[0] ?? '', 'there', 40),
+    sanitizeVariable(payload.service, 'your enquiry', 60),
+    sanitizeVariable(assigneeDisplayName(payload.assignedTo), 'our team', 40),
   ];
+
+  return values.map((text, i) => {
+    const name = KAPSO_TEMPLATE_PARAM_NAMES[i];
+    return name
+      ? { type: 'text' as const, parameter_name: name, text }
+      : { type: 'text' as const, text };
+  });
 }
 
 async function setAckStatus(eventId: string, status: string, reason?: string, messageId?: string) {

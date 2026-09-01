@@ -454,3 +454,50 @@ describe('coexistence (WhatsApp Business App on the same number)', () => {
     expect(isCustomerReply('whatsapp.message.received', 'history_sync', 'inbound')).toBe(false);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Template parameter style (named vs positional)
+// ---------------------------------------------------------------------------
+describe('template parameter style', () => {
+  it('sends positional parameters when no names are configured', async () => {
+    setEnv({ KAPSO_TEMPLATE_PARAM_NAMES: '' });
+    vi.resetModules();
+    const { buildVariables } = await import('../services/whatsapp/leadAckService');
+    const vars = buildVariables({ firstName: 'Priya', service: 'Shopify', assignedTo: null });
+    expect(vars).toEqual([
+      { type: 'text', text: 'Priya' },
+      { type: 'text', text: 'Shopify' },
+      { type: 'text', text: 'our team' },
+    ]);
+    expect(vars.every((v) => !('parameter_name' in v))).toBe(true);
+  });
+
+  it('sends named parameters when the template uses them', async () => {
+    setEnv({ KAPSO_TEMPLATE_PARAM_NAMES: 'customer_name,service_name,assignee_name' });
+    vi.resetModules();
+    const { buildVariables } = await import('../services/whatsapp/leadAckService');
+    const vars = buildVariables({ firstName: 'Priya', service: 'Shopify', assignedTo: 'd2c.bd' });
+    expect(vars).toEqual([
+      { type: 'text', parameter_name: 'customer_name', text: 'Priya' },
+      { type: 'text', parameter_name: 'service_name', text: 'Shopify' },
+      { type: 'text', parameter_name: 'assignee_name', text: 'D2c Bd' },
+    ]);
+  });
+
+  it('keeps names aligned to position, so order in the template is preserved', async () => {
+    setEnv({ KAPSO_TEMPLATE_PARAM_NAMES: 'a,b,c' });
+    vi.resetModules();
+    const { buildVariables } = await import('../services/whatsapp/leadAckService');
+    const vars = buildVariables({ firstName: 'X', service: 'Y', assignedTo: null });
+    expect(vars.map((v) => v.parameter_name)).toEqual(['a', 'b', 'c']);
+  });
+
+  it('falls back to positional for any parameter without a configured name', async () => {
+    setEnv({ KAPSO_TEMPLATE_PARAM_NAMES: 'customer_name' });
+    vi.resetModules();
+    const { buildVariables } = await import('../services/whatsapp/leadAckService');
+    const vars = buildVariables({ firstName: 'X', service: 'Y', assignedTo: null });
+    expect(vars[0].parameter_name).toBe('customer_name');
+    expect('parameter_name' in vars[1]).toBe(false);
+  });
+});

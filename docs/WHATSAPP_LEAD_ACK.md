@@ -111,6 +111,19 @@ Reply STOP if you don't wish to receive further WhatsApp communication.
 Sample values are mandatory — Meta rejects submissions without them:
 `{{1}}` = `Priya`, `{{2}}` = `Shopify Development`, `{{3}}` = `Rahul`.
 
+**Check the parameter style.** Meta supports two, and they are not
+interchangeable. If the template preview shows `{{customer_name}}` it uses
+**named** parameters and every send must carry a matching `parameter_name`;
+if it shows `{{1}}` it is **positional**. A mismatch is rejected as a
+permanent error — it fails instantly and never retries, so no message ever
+arrives. For a named template set, in template order:
+
+```
+KAPSO_TEMPLATE_PARAM_NAMES=customer_name,service_name,assignee_name
+```
+
+Leave it empty for a positional template.
+
 If the language code is `en_US` rather than `en`, set
 `KAPSO_TEMPLATE_LANGUAGE=en_US`. A mismatch produces Meta error 132001, which
 this code treats as permanent — it will never retry. This is the most common
