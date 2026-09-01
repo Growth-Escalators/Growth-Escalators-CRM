@@ -121,5 +121,7 @@ export {
   // src/config/permissions.ts, src/services/permissionResolver.ts)
   roles,
   rolePermissions,
-  userPermissionOverrides,
+  userPermissionOverrides,
+  waLeadAcks,
+  waMonthlyUsage,
 } from './schema';

@@ -15,6 +15,7 @@ import { claimBootBackfill } from './services/bootBackfillGuard';
 import morgan from 'morgan';
 import rateLimit from 'express-rate-limit';
 import webhooksRouter from './routes/webhooks';
+import kapsoWebhookRouter from './routes/kapsoWebhook';
 import contactsRouter from './routes/contacts';
 import dealsRouter from './routes/deals';
 import sequencesRouter from './routes/sequences';
@@ -276,6 +277,7 @@ app.use('/', healthRouter);
 app.use('/api', healthRouter); // alias: /api/health matches the /api/* convention used by external monitors
 app.use('/auth', authRouter);
 app.use('/webhooks/documenso', contractsWebhookRouter); // Documenso e-sign completion webhook (HMAC-verified, public) — before the generic /webhooks mount
+app.use('/webhooks', kapsoWebhookRouter); // Kapso WhatsApp events (HMAC-verified in-router) — before the generic mount
 app.use('/webhooks', webhooksRouter);
 // Security audit (2026-08) — booking.ts was mounted here with NO auth at all,
 // so the full funnel create/read/update/reset management surface (everything

@@ -5,6 +5,14 @@ import { defineConfig } from 'vitest/config';
 // numbers as of 2026-07-17 (~37% statements/branches/lines, ~39%
 // functions) — a floor against backsliding, not a target. Raise these as
 // real coverage grows; don't lower them to make a red run green.
+/**
+ * Renamed from vitest.config.ts to .mts.
+ *
+ * package.json is "type": "commonjs", so a .ts config is loaded through
+ * require(). vitest 4 pulls in std-env 4, which is ESM-only, and the require()
+ * throws ERR_REQUIRE_ESM before any test runs — the whole suite is unrunnable.
+ * The .mts extension forces the config to load as ESM.
+ */
 export default defineConfig({
   test: {
     globals: true,

@@ -320,6 +320,17 @@ describe('PR 8B scope boundary — PR 9/10 must not have started', () => {
       + 'migrationSnapshotLineage.test.ts) — no lineage issue here. Carries no outreach, sequence, reply, '
       + 'or Smartlead/reply-ingestion data of any kind. Owner-approved. Unrelated to PR 9/10 (Smartlead / '
       + 'reply ingestion).',
+    54: 'wa_lead_acks + wa_monthly_usage + contacts WhatsApp-consent columns — website-lead WhatsApp '
+      + 'acknowledgement via Kapso (owner-approved). Two additive CREATE TABLEs plus five nullable '
+      + 'ADD COLUMNs on contacts (wa_consent_at / wa_consent_text_version / wa_consent_source / '
+      + 'wa_opt_out_at / wa_opt_out_reason) recording how and when WhatsApp consent was obtained, and '
+      + 'one partial UNIQUE INDEX on messages(external_id) so a replayed delivery webhook cannot '
+      + 'insert a duplicate row. No ALTER or DROP of any existing column. wa_lead_acks is keyed by the '
+      + 'existing events row that POST /api/leads/website already writes per submission — it records '
+      + 'the outcome of one outbound WhatsApp template, not leads or replies. Inbound customer '
+      + 'messages continue to land in the existing messages table via the existing webhook path; this '
+      + 'migration adds no reply-ingestion surface and no provider/adapter table. Unrelated to PR 9/10 '
+      + '(Smartlead / reply ingestion).',
   };
 
   it('every migration past 0037 is in the reviewed out-of-scope allowlist', () => {

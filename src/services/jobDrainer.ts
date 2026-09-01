@@ -65,6 +65,7 @@ import { getDefaultIngestTenant } from './tenantFeatures';
 import { sendSequenceEmail, automatedEmailsEnabled } from './emailService';
 import { sendSlackMessage } from './slackService';
 import { SLACK_SALES_BD_CHANNEL, SLACK_SAKCHAM } from '../config/constants';
+import { drainLeadAcksOnce } from './whatsapp/leadAckService';
 import logger from '../utils/logger';
 
 const POLL_INTERVAL_MS = 60_000;
@@ -473,7 +474,7 @@ export function startJobDrainer(): void {
     return;
   }
   if (timer) return;
-  logger.info(`[job-drainer] started (form_submit + sequence_step + hot_lead_alert, every ${POLL_INTERVAL_MS / 1000}s)`);
+  logger.info(`[job-drainer] started (form_submit + sequence_step + hot_lead_alert + wa_lead_ack, every ${POLL_INTERVAL_MS / 1000}s)`);
   const tick = () => {
     // Three independent drains per tick — a failure/throw in one type must
     // never suppress the others. Each function already isolates per-job
@@ -481,6 +482,7 @@ export function startJobDrainer(): void {
     void drainOnce().catch((e) => logger.error({ err: e?.message }, '[job-drainer] form_submit loop error'));
     void drainSequenceStepsOnce().catch((e) => logger.error({ err: e?.message }, '[job-drainer] sequence_step loop error'));
     void drainHotLeadAlertsOnce().catch((e) => logger.error({ err: e?.message }, '[job-drainer] hot_lead_alert loop error'));
+    void drainLeadAcksOnce().catch((e) => logger.error({ err: e?.message }, '[job-drainer] wa_lead_ack loop error'));
   };
   tick();
   timer = setInterval(tick, POLL_INTERVAL_MS);
