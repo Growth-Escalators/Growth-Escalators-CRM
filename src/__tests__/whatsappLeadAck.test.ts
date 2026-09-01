@@ -544,3 +544,55 @@ describe('env flag parsing', () => {
     expect(await processAckJob(JOB)).toBe('sent');
   });
 });
+
+// ---------------------------------------------------------------------------
+// Self-send guard
+// ---------------------------------------------------------------------------
+describe('self-send guard', () => {
+  it('refuses to message the sending number, with a named reason', async () => {
+    setEnv({ KAPSO_SENDER_E164: '+917733888883', WHATSAPP_TEST_MODE: 'false' });
+    vi.resetModules();
+    queuePolicyReads({});
+    const { processAckJob } = await import('../services/whatsapp/leadAckService');
+    const result = await processAckJob({
+      ...JOB,
+      payload: { ...JOB.payload, phoneE164: '+917733888883' },
+    });
+    expect(result).toBe('skipped_self_send');
+    expect(sendTemplateMock).not.toHaveBeenCalled();
+  });
+
+  it('ignores formatting differences when comparing to the sender', async () => {
+    setEnv({ KAPSO_SENDER_E164: '91 77338 88883', WHATSAPP_TEST_MODE: 'false' });
+    vi.resetModules();
+    queuePolicyReads({});
+    const { processAckJob } = await import('../services/whatsapp/leadAckService');
+    const result = await processAckJob({
+      ...JOB,
+      payload: { ...JOB.payload, phoneE164: '+917733888883' },
+    });
+    expect(result).toBe('skipped_self_send');
+  });
+
+  it('still sends to a different number', async () => {
+    setEnv({ KAPSO_SENDER_E164: '+917733888883', WHATSAPP_TEST_MODE: 'false' });
+    vi.resetModules();
+    queuePolicyReads({});
+    sendTemplateMock.mockResolvedValue({ ok: true, messageId: 'wamid.OK' });
+    const { processAckJob } = await import('../services/whatsapp/leadAckService');
+    expect(await processAckJob(JOB)).toBe('sent');
+  });
+
+  it('does not run when the sender number is not configured', async () => {
+    setEnv({ KAPSO_SENDER_E164: '', WHATSAPP_TEST_MODE: 'false' });
+    vi.resetModules();
+    queuePolicyReads({});
+    sendTemplateMock.mockResolvedValue({ ok: true, messageId: 'wamid.NOGUARD' });
+    const { processAckJob } = await import('../services/whatsapp/leadAckService');
+    const result = await processAckJob({
+      ...JOB,
+      payload: { ...JOB.payload, phoneE164: '+917733888883' },
+    });
+    expect(result).toBe('sent');
+  });
+});

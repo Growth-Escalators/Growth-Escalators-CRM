@@ -155,6 +155,17 @@ export const KAPSO_GRAPH_VERSION = process.env.KAPSO_GRAPH_VERSION ?? 'v24.0';
  * Leave empty for a positional template. Example:
  *   KAPSO_TEMPLATE_PARAM_NAMES=customer_name,service_name,assignee_name
  */
+/**
+ * The sending number's own E.164 address, used only to refuse a self-send.
+ *
+ * WhatsApp cannot message a number from itself. Meta rejects it with a bare
+ * "(#100) Invalid parameter" that names nothing — the same generic error it
+ * returns for a dozen unrelated mistakes — so without this check a mis-set
+ * test allowlist is close to undiagnosable. Optional: leave unset and the
+ * guard simply does not run.
+ */
+export const KAPSO_SENDER_E164 = (process.env.KAPSO_SENDER_E164 ?? '').trim();
+
 export const KAPSO_TEMPLATE_PARAM_NAMES = (process.env.KAPSO_TEMPLATE_PARAM_NAMES ?? '')
   .split(',')
   .map((n) => n.trim())
