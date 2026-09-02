@@ -5,6 +5,7 @@ import { verifyWebhookSignature } from '../services/whatsapp/kapsoClient';
 import { isOptOutMessage } from '../services/whatsapp/outboundPolicy';
 import { normalizeChannelValue } from '../services/contactService';
 import { sendSlackMessage } from '../services/slackService';
+import { getDefaultIngestTenant } from '../services/tenantFeatures';
 import { redactPhone } from '../services/phoneService';
 import { SLACK_SALES_BD_CHANNEL, CRM_APP_BASE_URL } from '../config/constants';
 import logger from '../utils/logger';
@@ -24,6 +25,19 @@ import logger from '../utils/logger';
  */
 
 const router = Router();
+let cachedKapsoTenantId: string | null = null;
+
+/**
+ * Kapso is currently the Growth Escalators website-lead WhatsApp transport.
+ * Resolve the same canonical CRM automation tenant as /api/leads/website and
+ * keep every contact/message mutation explicitly tenant-scoped.
+ */
+async function resolveKapsoTenantId(): Promise<string | null> {
+  if (cachedKapsoTenantId) return cachedKapsoTenantId;
+  const tenant = await getDefaultIngestTenant('crmAutomation');
+  cachedKapsoTenantId = tenant?.id ?? null;
+  return cachedKapsoTenantId;
+}
 
 /** Replay protection, reusing the table the Meta webhook already uses. */
 async function alreadyProcessed(eventId: string): Promise<boolean> {
@@ -124,13 +138,19 @@ export function isCustomerReply(eventType: string, origin: string, direction: st
 }
 
 async function handleEvent(req: Request): Promise<void> {
+  const tenantId = await resolveKapsoTenantId();
+  if (!tenantId) {
+    logger.error('[kapso-webhook] CRM automation tenant not configured; event ignored safely');
+    return;
+  }
+
   const body = (req.body ?? {}) as KapsoBody;
   const eventType = req.header('x-webhook-event') || body.event || '';
 
   // Meta-shaped payload (raw forwarding mode).
   const metaValue = body.entry?.[0]?.changes?.[0]?.value;
   if (metaValue) {
-    await handleMetaShaped(metaValue);
+    await handleMetaShaped(metaValue, tenantId);
     return;
   }
 
@@ -149,6 +169,7 @@ async function handleEvent(req: Request): Promise<void> {
     await applyStatus(
       String(data.message_id ?? data.id ?? ''),
       mappedStatus ?? String(data.status ?? ''),
+      tenantId,
     );
     return;
   }
@@ -175,7 +196,7 @@ async function handleEvent(req: Request): Promise<void> {
       externalId: String(data.id ?? data.message_id ?? ''),
       to: String(data.to ?? data.phone_number ?? ''),
       text,
-    });
+    }, tenantId);
     return;
   }
 
@@ -184,7 +205,7 @@ async function handleEvent(req: Request): Promise<void> {
     from: String(data.from ?? data.phone_number ?? ''),
     text,
     conversationId: data.conversation_id ? String(data.conversation_id) : null,
-  });
+  }, tenantId);
 }
 
 /**
@@ -192,21 +213,25 @@ async function handleEvent(req: Request): Promise<void> {
  * conversation stays complete. Deliberately does not touch lead status,
  * consent, or notifications.
  */
-async function recordAgentMessage(msg: { externalId: string; to: string; text: string }): Promise<void> {
+async function recordAgentMessage(msg: { externalId: string; to: string; text: string }, tenantId: string): Promise<void> {
   if (!msg.to || !msg.externalId) return;
   const normalized = normalizeChannelValue('whatsapp', msg.to);
 
   const [channel] = await db
     .select({ contactId: contactChannels.contactId, tenantId: contactChannels.tenantId })
     .from(contactChannels)
-    .where(and(eq(contactChannels.channelType, 'whatsapp'), eq(contactChannels.channelValue, normalized)))
+    .where(and(
+      eq(contactChannels.tenantId, tenantId),
+      eq(contactChannels.channelType, 'whatsapp'),
+      eq(contactChannels.channelValue, normalized),
+    ))
     .limit(1);
   if (!channel) return;
 
   await db
     .insert(messages)
     .values({
-      tenantId: channel.tenantId,
+      tenantId,
       contactId: channel.contactId,
       channel: 'whatsapp',
       direction: 'outbound',
@@ -229,15 +254,15 @@ async function recordAgentMessage(msg: { externalId: string; to: string; text: s
       updatedAt: now,
       metadata: sql`COALESCE(${contacts.metadata}, '{}'::jsonb) || ${handoff}::jsonb`,
     })
-    .where(eq(contacts.id, channel.contactId));
+    .where(and(eq(contacts.id, channel.contactId), eq(contacts.tenantId, tenantId)));
 }
 
 /** Handle a payload in Meta's native envelope. */
-async function handleMetaShaped(value: Record<string, unknown>): Promise<void> {
+async function handleMetaShaped(value: Record<string, unknown>, tenantId: string): Promise<void> {
   const statuses = value.statuses as Array<Record<string, string>> | undefined;
   if (statuses?.length) {
     for (const s of statuses) {
-      await applyStatus(s.id, s.status);
+      await applyStatus(s.id, s.status, tenantId);
     }
     return;
   }
@@ -252,7 +277,7 @@ async function handleMetaShaped(value: Record<string, unknown>): Promise<void> {
       from: String(m.from ?? ''),
       text,
       conversationId: null,
-    });
+    }, tenantId);
   }
 }
 
@@ -281,20 +306,22 @@ export function shouldApplyStatus(current: string | null | undefined, incoming: 
   return incomingRank > currentRank;
 }
 
-async function applyStatus(externalId: string, status: string): Promise<void> {
+async function applyStatus(externalId: string, status: string, tenantId: string): Promise<void> {
   if (!externalId || !status) return;
 
   const [existing] = await db
     .select({ id: messages.id, status: messages.status, contactId: messages.contactId })
     .from(messages)
-    .where(eq(messages.externalId, externalId))
+    .where(and(eq(messages.externalId, externalId), eq(messages.tenantId, tenantId)))
     .limit(1);
 
   if (!existing) return;
-
   if (!shouldApplyStatus(existing.status, status)) return;
 
-  await db.update(messages).set({ status }).where(eq(messages.id, existing.id));
+  await db
+    .update(messages)
+    .set({ status })
+    .where(and(eq(messages.id, existing.id), eq(messages.tenantId, tenantId)));
 
   const ackStatus = status === 'failed' ? 'failed_permanent' : status;
   await db.execute(sql`
@@ -311,7 +338,7 @@ async function handleInbound(msg: {
   from: string;
   text: string;
   conversationId: string | null;
-}): Promise<void> {
+}, tenantId: string): Promise<void> {
   if (!msg.from) return;
 
   // Match using the same normalisation the contact was written with, so
@@ -321,7 +348,11 @@ async function handleInbound(msg: {
   const [channel] = await db
     .select({ contactId: contactChannels.contactId, tenantId: contactChannels.tenantId })
     .from(contactChannels)
-    .where(and(eq(contactChannels.channelType, 'whatsapp'), eq(contactChannels.channelValue, normalized)))
+    .where(and(
+      eq(contactChannels.tenantId, tenantId),
+      eq(contactChannels.channelType, 'whatsapp'),
+      eq(contactChannels.channelValue, normalized),
+    ))
     .limit(1);
 
   if (!channel) {
@@ -338,7 +369,7 @@ async function handleInbound(msg: {
     await db
       .insert(messages)
       .values({
-        tenantId: channel.tenantId,
+        tenantId,
         contactId: channel.contactId,
         channel: 'whatsapp',
         direction: 'inbound',
@@ -363,13 +394,15 @@ async function handleInbound(msg: {
         updatedAt: now,
         lastActivityAt: now,
       })
-      .where(eq(contacts.id, channel.contactId));
+      .where(and(eq(contacts.id, channel.contactId), eq(contacts.tenantId, tenantId)));
 
     await db.execute(sql`
       UPDATE wa_lead_acks SET status = 'opted_out',
              reason = 'customer opted out by reply', updated_at = NOW()
        WHERE event_id IN (
-         SELECT id FROM events WHERE contact_id = ${channel.contactId}
+         SELECT id FROM events
+          WHERE contact_id = ${channel.contactId}
+            AND tenant_id = ${tenantId}
        )
     `);
 
@@ -381,7 +414,7 @@ async function handleInbound(msg: {
   const [contact] = await db
     .select({ assignedTo: contacts.assignedTo, firstName: contacts.firstName, status: contacts.status })
     .from(contacts)
-    .where(eq(contacts.id, channel.contactId))
+    .where(and(eq(contacts.id, channel.contactId), eq(contacts.tenantId, tenantId)))
     .limit(1);
 
   await db
@@ -397,7 +430,7 @@ async function handleInbound(msg: {
         ...(msg.conversationId ? { kapsoConversationId: msg.conversationId } : {}),
       })}::jsonb`,
     })
-    .where(eq(contacts.id, channel.contactId));
+    .where(and(eq(contacts.id, channel.contactId), eq(contacts.tenantId, tenantId)));
 
   // Mark the most recent acknowledgement for this contact as replied. The
   // ack is keyed by its events row, so this resolves through events rather
@@ -408,6 +441,7 @@ async function handleInbound(msg: {
        SELECT a.id FROM wa_lead_acks a
          JOIN events e ON e.id = a.event_id
         WHERE e.contact_id = ${channel.contactId}
+          AND e.tenant_id = ${tenantId}
         ORDER BY a.created_at DESC
         LIMIT 1
      )
