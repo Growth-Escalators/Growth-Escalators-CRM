@@ -6,6 +6,11 @@ import { enrolContact } from './sequenceService';
 import { insertJob } from './jobQueue';
 import { scoreBooking, determineSequence, buildDealTitle } from './qualificationService';
 import { sendLeadEvent, sendScheduleEvent } from './metaCapi';
+import {
+  ensureContactInMasterSalesPipeline,
+  ensureMasterSalesPipeline,
+  moveMasterSalesContactToStage,
+} from './masterSalesPipelineService';
 
 type Answers = Record<string, unknown>;
 
@@ -74,6 +79,7 @@ export async function processBooking(payload: Record<string, unknown>) {
     .limit(1);
   if (tenantRows.length === 0) throw new Error('Growth Escalators tenant not found');
   const tenantId = tenantRows[0].id;
+  const masterSalesPipeline = await ensureMasterSalesPipeline(tenantId);
 
   // -------------------------------------------------------------------------
   // 5. Find or create contact
@@ -98,9 +104,10 @@ export async function processBooking(payload: Record<string, unknown>) {
   await updateContactScore(contact.id, score.totalScore);
 
   // -------------------------------------------------------------------------
-  // 8. Insert or update deal
-  // If contact already has an Ecom deal (from a purchase), advance it to
-  // appointment_booked. Otherwise create a new Direct pipeline deal.
+  // 8. Insert or update the existing booking-linked deal.
+  // Keep this legacy/ecom booking relationship intact, but explicitly exclude
+  // the Master Sales Pipeline deal so an ecom website lead is never moved to
+  // an old `appointment_booked` stage that does not exist on the master board.
   // -------------------------------------------------------------------------
   const contactName = [firstName, lastName].filter(Boolean).join(' ');
 
@@ -110,7 +117,9 @@ export async function processBooking(payload: Record<string, unknown>) {
     .where(eq(deals.contactId, contact.id))
     .limit(10);
 
-  const ecomDeal = existingEcomDeals.find((d) => d.serviceType === 'ecom');
+  const ecomDeal = existingEcomDeals.find((d) =>
+    d.serviceType === 'ecom' && d.pipelineId !== masterSalesPipeline?.id
+  );
 
   let deal: typeof deals.$inferSelect;
 
@@ -136,6 +145,27 @@ export async function processBooking(payload: Record<string, unknown>) {
       })
       .returning();
     deal = inserted;
+  }
+
+  // The Master Sales Pipeline is the sales team's operating view. A confirmed
+  // Cal.com booking should move there automatically, even when the booking must
+  // retain its existing legacy/ecom deal relationship for downstream workflows.
+  try {
+    await ensureContactInMasterSalesPipeline({
+      tenantId,
+      contactId: contact.id,
+      title: buildDealTitle(qualificationAnswers, contactName),
+      service: eventTitle,
+      source: 'calcom',
+    });
+    await moveMasterSalesContactToStage({
+      tenantId,
+      contactId: contact.id,
+      stage: 'meeting-booked',
+      createdBy: 'calcom',
+    });
+  } catch (error) {
+    logger.error({ error }, '[booking] master sales pipeline sync failed');
   }
 
   // -------------------------------------------------------------------------
