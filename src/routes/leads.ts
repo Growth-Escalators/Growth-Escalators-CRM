@@ -183,16 +183,47 @@ router.post('/website', async (req: Request, res: Response): Promise<void> => {
       formType,
     });
 
-    const attribution = {
-      firstLandingPage: cleanString(req.body?.firstLandingPage, 300),
-      conversionPage: cleanString(req.body?.landingPageRoute, 300),
-      firstReferrerUrl: cleanString(req.body?.firstReferrerUrl, 700),
-      referrerUrl: cleanString(req.body?.referrerUrl, 700),
+    const firstLandingPage = cleanString(req.body?.firstLandingPage, 300);
+    const firstReferrerUrl = cleanString(req.body?.firstReferrerUrl, 700);
+    const firstTouchAt = cleanString(req.body?.firstTouchAt, 100) || capturedAt;
+    const firstAttribution = {
+      firstLandingPage,
+      firstReferrerUrl,
+      // Common aliases make UI/reporting simpler while preserving old keys.
+      landingPage: firstLandingPage,
+      referrerUrl: firstReferrerUrl,
       utmSource: cleanString(req.body?.utmSource, 200),
       utmMedium: cleanString(req.body?.utmMedium, 200),
       utmCampaign: cleanString(req.body?.utmCampaign, 250),
       utmTerm: cleanString(req.body?.utmTerm, 250),
       utmContent: cleanString(req.body?.utmContent, 250),
+      capturedAt: firstTouchAt,
+    };
+
+    // New website builds send explicit last-touch values. The fallback keeps
+    // older deployed clients compatible until every edge cache/browser updates.
+    const lastLandingPage = cleanString(req.body?.lastLandingPage, 300)
+      || cleanString(req.body?.landingPageRoute, 300)
+      || firstLandingPage;
+    const lastReferrerUrl = cleanString(req.body?.lastReferrerUrl, 700)
+      || cleanString(req.body?.referrerUrl, 700)
+      || firstReferrerUrl;
+    const lastAttribution = {
+      lastLandingPage,
+      lastReferrerUrl,
+      landingPage: lastLandingPage,
+      referrerUrl: lastReferrerUrl,
+      utmSource: cleanString(req.body?.lastUtmSource, 200) || firstAttribution.utmSource,
+      utmMedium: cleanString(req.body?.lastUtmMedium, 200) || firstAttribution.utmMedium,
+      utmCampaign: cleanString(req.body?.lastUtmCampaign, 250) || firstAttribution.utmCampaign,
+      utmTerm: cleanString(req.body?.lastUtmTerm, 250) || firstAttribution.utmTerm,
+      utmContent: cleanString(req.body?.lastUtmContent, 250) || firstAttribution.utmContent,
+      capturedAt: cleanString(req.body?.lastTouchAt, 100) || capturedAt,
+    };
+
+    const conversionContext = {
+      conversionPage: cleanString(req.body?.landingPageRoute, 300),
+      referrerUrl: cleanString(req.body?.referrerUrl, 700),
       whatsappClicked: cleanBoolean(req.body?.whatsappClicked),
       whatsappClickSource: cleanString(req.body?.whatsappClickSource, 200),
       capturedAt,
@@ -217,6 +248,7 @@ router.post('/website', async (req: Request, res: Response): Promise<void> => {
       preferredCallTime,
       market,
       assignedBucket: bucket,
+      conversionPage: conversionContext.conversionPage,
       capturedAt,
     };
 
@@ -237,8 +269,9 @@ router.post('/website', async (req: Request, res: Response): Promise<void> => {
       tags: ['website_lead', ...(businessVertical !== 'general' ? [slugTag(businessVertical)] : [])],
       channels,
       metadata: {
-        firstWebsiteAttribution: attribution,
-        lastWebsiteAttribution: attribution,
+        firstWebsiteAttribution: firstAttribution,
+        lastWebsiteAttribution: lastAttribution,
+        latestWebsiteConversion: conversionContext,
         latestWebsiteLead: leadSummary,
         websiteLeadCount: 1,
       },
@@ -280,8 +313,9 @@ router.post('/website', async (req: Request, res: Response): Promise<void> => {
       tags: newTags,
       metadata: {
         ...existingMetadata,
-        firstWebsiteAttribution: existingMetadata.firstWebsiteAttribution || attribution,
-        lastWebsiteAttribution: attribution,
+        firstWebsiteAttribution: existingMetadata.firstWebsiteAttribution || firstAttribution,
+        lastWebsiteAttribution: lastAttribution,
+        latestWebsiteConversion: conversionContext,
         latestWebsiteLead: leadSummary,
         websiteLeadCount: created ? Math.max(priorCount, 1) : priorCount + 1,
       },
@@ -310,7 +344,9 @@ router.post('/website', async (req: Request, res: Response): Promise<void> => {
         formType,
         businessVertical,
         service,
-        attribution,
+        firstAttribution,
+        lastAttribution,
+        conversionContext,
         whatsappConsent,
         consentTextVersion: whatsappConsent ? consentTextVersion : null,
         preferredCallTime,
