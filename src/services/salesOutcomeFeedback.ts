@@ -75,8 +75,9 @@ function sourceUrl(metadata: Record<string, unknown>, first: AttributionContext,
 
 /**
  * Sends quality/revenue outcomes back to Meta only for Meta-attributed website
- * leads. This is intentionally best-effort: a CRM stage change is the source
- * of truth and must never fail because Meta is unavailable or unconfigured.
+ * leads on the canonical Master Sales Pipeline. This is intentionally
+ * best-effort: a CRM stage change is the source of truth and must never fail
+ * because Meta is unavailable or unconfigured.
  *
  * Stable event IDs mean moving a deal away from and back into an outcome stage
  * cannot double-count the same QualifiedLead / ClosedWon conversion in Meta.
@@ -94,6 +95,7 @@ export async function sendSalesOutcomeFeedback(input: OutcomeFeedbackInput): Pro
       metadata: Record<string, unknown> | null;
       email: string | null;
       phone: string | null;
+      deal_value: number | string | null;
     }>(`
       SELECT
         c.first_name,
@@ -101,16 +103,26 @@ export async function sendSalesOutcomeFeedback(input: OutcomeFeedbackInput): Pro
         c.city,
         c.source,
         c.metadata,
+        d.deal_value,
         MAX(cc.channel_value) FILTER (WHERE cc.channel_type = 'email') AS email,
         MAX(cc.channel_value) FILTER (WHERE cc.channel_type IN ('phone', 'whatsapp')) AS phone
-      FROM contacts c
+      FROM deals d
+      JOIN pipelines p
+        ON p.id = d.pipeline_id
+       AND p.tenant_id = d.tenant_id
+       AND p.slug = 'master-sales'
+      JOIN contacts c
+        ON c.id = d.contact_id
+       AND c.tenant_id = d.tenant_id
       LEFT JOIN contact_channels cc
         ON cc.contact_id = c.id
        AND cc.tenant_id = c.tenant_id
-      WHERE c.id = $1 AND c.tenant_id = $2
-      GROUP BY c.id, c.first_name, c.last_name, c.city, c.source, c.metadata
+      WHERE d.id = $1
+        AND d.tenant_id = $2
+        AND c.id = $3
+      GROUP BY c.id, c.first_name, c.last_name, c.city, c.source, c.metadata, d.deal_value
       LIMIT 1
-    `, [input.contactId, input.tenantId]);
+    `, [input.dealId, input.tenantId, input.contactId]);
 
     const contact = result.rows[0];
     if (!contact) return;
@@ -123,8 +135,9 @@ export async function sendSalesOutcomeFeedback(input: OutcomeFeedbackInput): Pro
 
     const eventName = stage === 'interested' ? 'QualifiedLead' : 'ClosedWon';
     const eventId = `crm_${eventName.toLowerCase()}_${input.tenantId}_${input.dealId}`;
-    const eventValue = stage === 'closed-won' && Number(input.dealValue) > 0
-      ? Number(input.dealValue)
+    const canonicalDealValue = Number(contact.deal_value ?? input.dealValue ?? 0);
+    const eventValue = stage === 'closed-won' && canonicalDealValue > 0
+      ? canonicalDealValue
       : undefined;
 
     const sent = await sendCapiEvent({
