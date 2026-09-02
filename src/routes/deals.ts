@@ -3,6 +3,7 @@ import { Router } from 'express';
 import { eq, and, sql } from 'drizzle-orm';
 import { db, pool, deals, contacts, pipelines } from '../db/index';
 import { findPipelineStageOutcome } from '../services/pipelineStages';
+import { sendSalesOutcomeFeedback } from '../services/salesOutcomeFeedback';
 import { requirePerm } from '../middleware/requirePerm';
 
 const router = Router();
@@ -139,6 +140,16 @@ router.post('/', requirePerm('deals.create'), async (req, res) => {
     ).catch(() => {});
   }
 
+  if (inserted[0]?.id && stage) {
+    void sendSalesOutcomeFeedback({
+      tenantId,
+      dealId: inserted[0].id,
+      contactId,
+      stage,
+      dealValue: Number(inserted[0].dealValue ?? 0),
+    });
+  }
+
   res.status(201).json(inserted[0]);
   } catch (e: unknown) {
     logger.error('[deals] POST / error:', e);
@@ -232,6 +243,17 @@ router.patch('/:id', requirePerm('deals.edit'), async (req, res) => {
   if (stage !== undefined && stage !== existing[0].stage) {
     await db.update(contacts).set({ lastActivityAt: new Date(), updatedAt: new Date() })
       .where(and(eq(contacts.id, existing[0].contactId), eq(contacts.tenantId, tenantId)));
+
+    // Closed-loop ad feedback is best-effort and only sends for the canonical
+    // Master Sales Pipeline + Meta-attributed website leads. A provider failure
+    // can never affect the authoritative CRM stage change above.
+    void sendSalesOutcomeFeedback({
+      tenantId,
+      dealId: id,
+      contactId: existing[0].contactId,
+      stage: String(stage),
+      dealValue: Number(updated[0]?.dealValue ?? existing[0].dealValue ?? 0),
+    });
 
     // ClickUp stage-transition tasks removed — ClickUp dropped 2026-05-09
   }
@@ -404,6 +426,16 @@ router.post('/bulk-create', requirePerm('deals.bulk'), async (req, res) => {
       sql`${contacts.id} = ANY(ARRAY[${sql.join(toCreate.map((id) => sql`${id}::uuid`), sql`, `)}])`,
     ));
 
+  for (const deal of created) {
+    void sendSalesOutcomeFeedback({
+      tenantId,
+      dealId: deal.id,
+      contactId: deal.contactId,
+      stage,
+      dealValue: Number(deal.dealValue ?? 0),
+    });
+  }
+
   res.status(201).json({ created, skipped: contactIds.length - toCreate.length });
   } catch (e: unknown) {
     logger.error('[deals] POST /bulk-create error:', e);
@@ -445,6 +477,15 @@ router.post('/bulk-update', requirePerm('deals.bulk'), async (req, res) => {
     }
   }
 
+  const feedbackDeals = upd.stage !== undefined
+    ? await db.select({ id: deals.id, contactId: deals.contactId, dealValue: deals.dealValue })
+        .from(deals)
+        .where(and(
+          eq(deals.tenantId, tenantId),
+          sql`${deals.id} = ANY(ARRAY[${sql.join(dealIds.map((id) => sql`${id}::uuid`), sql`, `)}])`,
+        ))
+    : [];
+
   const updates: Partial<typeof deals.$inferInsert> = { updatedAt: new Date() };
   if (upd.stage !== undefined) updates.stage = upd.stage;
   if (upd.assignedTo !== undefined) updates.assignedTo = upd.assignedTo;
@@ -468,6 +509,18 @@ router.post('/bulk-update', requirePerm('deals.bulk'), async (req, res) => {
        WHERE tenant_id = $2 AND id = ANY($3::uuid[])`,
       [upd.archived, tenantId, dealIds],
     );
+  }
+
+  if (upd.stage !== undefined) {
+    for (const deal of feedbackDeals) {
+      void sendSalesOutcomeFeedback({
+        tenantId,
+        dealId: deal.id,
+        contactId: deal.contactId,
+        stage: upd.stage,
+        dealValue: Number(deal.dealValue ?? 0),
+      });
+    }
   }
 
   res.json({ updated: dealIds.length });
@@ -543,6 +596,16 @@ router.post('/add-or-update', requirePerm('deals.bulk'), async (req, res) => {
   // Update contact lastActivityAt
   await db.update(contacts).set({ lastActivityAt: new Date(), updatedAt: new Date() })
     .where(and(eq(contacts.id, contactId), eq(contacts.tenantId, tenantId)));
+
+  if (result.deal?.id) {
+    void sendSalesOutcomeFeedback({
+      tenantId,
+      dealId: result.deal.id,
+      contactId,
+      stage,
+      dealValue: Number(result.deal.dealValue ?? 0),
+    });
+  }
 
   res.json(result);
   } catch (e: unknown) {
