@@ -2,11 +2,11 @@ import React from 'react';
 import { safeLower } from '../lib/safe.js';
 
 const QUALITY_OPTIONS = [
-  { value: '', label: 'Not reviewed', score: null, cls: 'bg-neutral-100 text-neutral-600 border-neutral-200' },
-  { value: 'hot', label: 'Hot', score: 90, cls: 'bg-success-500/10 text-success-700 border-success-200' },
-  { value: 'good', label: 'Good', score: 65, cls: 'bg-primary-50 text-primary-700 border-primary-200' },
-  { value: 'weak', label: 'Weak', score: 30, cls: 'bg-warning-500/10 text-warning-700 border-warning-200' },
-  { value: 'junk', label: 'Junk', score: 0, cls: 'bg-danger-50 text-danger-700 border-danger-200' },
+  { value: '', label: 'Not reviewed', cls: 'bg-neutral-100 text-neutral-600 border-neutral-200' },
+  { value: 'hot', label: 'Hot', cls: 'bg-success-500/10 text-success-700 border-success-200' },
+  { value: 'good', label: 'Good', cls: 'bg-primary-50 text-primary-700 border-primary-200' },
+  { value: 'weak', label: 'Weak', cls: 'bg-warning-500/10 text-warning-700 border-warning-200' },
+  { value: 'junk', label: 'Junk', cls: 'bg-danger-50 text-danger-700 border-danger-200' },
 ];
 
 function asObject(value) {
@@ -105,15 +105,12 @@ export default function WebsiteLeadIntelligence({ contact, deals = [], onPatch }
   const currentDeal = deals[0] || null;
 
   async function setQuality(value) {
-    const option = QUALITY_OPTIONS.find((item) => item.value === value) || QUALITY_OPTIONS[0];
-    const nextMetadata = {
-      ...metadata,
-      leadQuality: value || null,
-      leadQualityUpdatedAt: new Date().toISOString(),
-    };
     await onPatch({
-      metadata: nextMetadata,
-      ...(option.score != null ? { score: option.score } : {}),
+      metadata: {
+        ...metadata,
+        leadQuality: value || null,
+        leadQualityUpdatedAt: new Date().toISOString(),
+      },
     });
   }
 
@@ -148,7 +145,7 @@ export default function WebsiteLeadIntelligence({ contact, deals = [], onPatch }
             <option key={option.value || 'none'} value={option.value}>{option.label}</option>
           ))}
         </select>
-        <p className="text-[10px] text-neutral-400">Hot/Good also update the existing CRM score so current qualified-lead reporting keeps working.</p>
+        <p className="text-[10px] text-neutral-400">Kept separate from the CRM score so bookings, sales scoring and manual qualification never overwrite each other.</p>
       </div>
 
       <div className="space-y-2">
