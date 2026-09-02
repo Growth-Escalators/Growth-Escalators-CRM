@@ -16,6 +16,10 @@ function formatRupees(value) {
   }).format(Number(value || 0));
 }
 
+function formatPaise(value) {
+  return formatRupees(Number(value || 0) / 100);
+}
+
 function Stat({ label, value, hint }) {
   return (
     <div className="rounded-xl border border-slate-200 bg-white p-3">
@@ -71,11 +75,11 @@ export default function WebsiteAttributionAnalytics({
         <div>
           <h2 className="text-sm font-semibold text-slate-700">Website Attribution → Revenue</h2>
           <p className="text-xs text-slate-400 mt-0.5">
-            Website-lead cohort: acquisition, manual quality review and won deal value.
+            Website-lead cohort: acquisition, manual quality review, won deal value and payments received.
           </p>
         </div>
         <span className="text-[11px] text-slate-400">
-          Won value is CRM deal value, not cash received.
+          Cash received is counted only when the billing client is linked to the CRM contact.
         </span>
       </div>
 
@@ -95,9 +99,9 @@ export default function WebsiteAttributionAnalytics({
         <>
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
             <Stat label="Website leads" value={Number(totals.leads || 0).toLocaleString('en-IN')} hint={`${Number(totals.submissions || 0).toLocaleString('en-IN')} form submissions`} />
-            <Stat label="Quality reviewed" value={`${Number(totals.reviewRate || 0)}%`} hint={`${Number(totals.reviewed || 0).toLocaleString('en-IN')} reviewed`} />
-            <Stat label="Good + Hot" value={Number(totals.qualified || 0).toLocaleString('en-IN')} hint={`${Number(totals.qualificationRate || 0)}% of reviewed leads`} />
+            <Stat label="Good + Hot" value={Number(totals.qualified || 0).toLocaleString('en-IN')} hint={`${Number(totals.qualificationRate || 0)}% of reviewed · ${Number(totals.reviewRate || 0)}% reviewed`} />
             <Stat label="Won deal value" value={formatRupees(totals.wonDealValue)} hint={`${Number(totals.wonDeals || 0).toLocaleString('en-IN')} won deal${Number(totals.wonDeals || 0) === 1 ? '' : 's'}`} />
+            <Stat label="Cash received" value={formatPaise(totals.receivedRevenuePaise)} hint="Payments linked back to website-acquired contacts" />
           </div>
 
           <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
@@ -131,6 +135,7 @@ export default function WebsiteAttributionAnalytics({
                       <th className="px-4 py-2 text-xs font-semibold text-slate-500 text-right">Good + Hot</th>
                       <th className="px-4 py-2 text-xs font-semibold text-slate-500 text-right">Won</th>
                       <th className="px-4 py-2 text-xs font-semibold text-slate-500 text-right">Won value</th>
+                      <th className="px-4 py-2 text-xs font-semibold text-slate-500 text-right">Cash received</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -142,6 +147,7 @@ export default function WebsiteAttributionAnalytics({
                         <td className="px-4 py-2 text-sm font-semibold text-sky-700 text-right">{Number(row.qualified || 0).toLocaleString('en-IN')}</td>
                         <td className="px-4 py-2 text-sm font-semibold text-emerald-700 text-right">{Number(row.wonDeals || 0).toLocaleString('en-IN')}</td>
                         <td className="px-4 py-2 text-sm font-semibold text-emerald-700 text-right">{formatRupees(row.wonDealValue)}</td>
+                        <td className="px-4 py-2 text-sm font-semibold text-emerald-700 text-right">{formatPaise(row.receivedRevenuePaise)}</td>
                       </tr>
                     ))}
                   </tbody>
