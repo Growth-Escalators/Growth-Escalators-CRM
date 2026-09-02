@@ -206,7 +206,7 @@ export default function DealDrawer({ dealId, onClose, onViewContact, onUpdated }
             <div className="flex items-center justify-between mb-2">
               <div>
                 <p className="text-[10px] uppercase tracking-wide text-neutral-500 font-semibold">Opportunity</p>
-                <p className="text-xs text-neutral-400 mt-0.5">Stage, owner, value and close context</p>
+                <p className="text-xs text-neutral-500 mt-0.5">Stage, owner, value and close context</p>
               </div>
               {editValues === null && (
                 <button onClick={startEdit} className="text-xs text-primary-600 hover:text-primary-800 font-medium">Edit</button>
@@ -328,7 +328,7 @@ export default function DealDrawer({ dealId, onClose, onViewContact, onUpdated }
           <div className="px-5 py-4">
             <div className="mb-3">
               <p className="text-[10px] uppercase tracking-wide text-neutral-500 font-semibold">Activity Timeline</p>
-              <p className="text-xs text-neutral-400 mt-0.5">Every pipeline stage move and sales note stays here</p>
+              <p className="text-xs text-neutral-500 mt-0.5">Every pipeline stage move and sales note stays here</p>
             </div>
             {activities.length === 0 ? (
               <p className="text-sm text-neutral-500 text-center py-6">No activity yet</p>
