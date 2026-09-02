@@ -132,17 +132,19 @@ export async function enqueueAck(payload: AckJobPayload): Promise<{ queued: bool
 }
 
 /**
- * Atomically claim a job.
+ * Atomically claim a tenant-owned job.
  *
  * jobQueue.claimJob() updates by id with no status predicate, so two concurrent
  * drainers could both "claim" the same row. This conditional version only
- * succeeds for the first caller.
+ * succeeds for the first caller and cannot claim another tenant's job even if
+ * an id were accidentally mixed between workers.
  */
-async function claimExclusively(jobId: string): Promise<boolean> {
+async function claimExclusively(jobId: string, tenantId: string): Promise<boolean> {
   const result = await db.execute(sql`
     UPDATE jobs
        SET status = 'processing', processing_started_at = NOW()
      WHERE id = ${jobId}
+       AND tenant_id = ${tenantId}
        AND status IN ('pending', 'failed')
     RETURNING id
   `);
@@ -155,10 +157,12 @@ async function claimExclusively(jobId: string): Promise<boolean> {
  * Deliberately does NOT use jobQueue.getPendingJobs(): that helper filters on
  * status = 'pending' only, while failJob() parks retryable failures as 'failed'
  * with a future process_after. Selecting both statuses is what makes the
- * existing backoff actually retry. (Every other job type in the CRM inherits
- * that gap — see docs/WHATSAPP_LEAD_ACK.md.)
+ * existing backoff actually retry. This is a system drainer, not a tenant user
+ * request, so it intentionally discovers due jobs across tenants; every claim
+ * and every downstream policy/message write is tenant-bound before processing.
  */
 async function getDueJobs(limit: number) {
+  // tenant-scoping-lint-ignore-next-line -- background system drainer intentionally discovers due jobs across tenants; each job is tenant-bound before claim/process.
   return db
     .select()
     .from(jobs)
@@ -254,7 +258,17 @@ export async function drainLeadAcksOnce(limit = 20): Promise<{
   let processed = 0;
 
   for (const job of due) {
-    const claimed = await claimExclusively(job.id);
+    const payload = job.payload as Partial<AckJobPayload> | null;
+    const tenantId = job.tenantId || payload?.tenantId;
+    if (!tenantId || !payload?.tenantId || payload.tenantId !== tenantId) {
+      logger.error(`[wa_ack] refusing job ${job.id}: missing or mismatched tenant ownership`);
+      await failJob(job.id, 'tenant ownership missing or mismatched');
+      results.tenant_error = (results.tenant_error ?? 0) + 1;
+      processed++;
+      continue;
+    }
+
+    const claimed = await claimExclusively(job.id, tenantId);
     if (!claimed) continue; // another worker got there first
     try {
       const outcome = await processAckJob(job);
