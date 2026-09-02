@@ -256,6 +256,164 @@ router.get('/team-performance', requirePermission('REPORTS_VIEW'), async (req: R
 });
 
 // ---------------------------------------------------------------------------
+// GET /api/analytics/website-attribution — website lead quality + deal value
+//
+// Cohort semantics: a lead belongs to the period in which the CRM contact was
+// first created. Won deal counts/value are then attributed back to that acquired
+// lead, even if the deal closed later. This answers "which acquisition created
+// valuable customers?" rather than merely "what closed this month?".
+// ---------------------------------------------------------------------------
+router.get('/website-attribution', requirePermission('REPORTS_VIEW'), async (req: Request, res: Response) => {
+  const tenantId = req.user!.tenantId;
+  const since = String(req.query.since || '');
+  const until = String(req.query.until || '');
+  const useCustom = /^\d{4}-\d{2}-\d{2}$/.test(since) && /^\d{4}-\d{2}-\d{2}$/.test(until);
+  const days = Math.min(Math.max(Number(req.query.days) || 30, 1), 730);
+  const params: unknown[] = [tenantId, ...(useCustom ? [since, until] : [days])];
+  const timeWhere = useCustom
+    ? `AND c.created_at >= $2::date AND c.created_at < ($3::date + INTERVAL '1 day')`
+    : `AND c.created_at >= NOW() - make_interval(days => $2::int)`;
+
+  const websiteCte = `
+    WITH website_contacts AS (
+      SELECT
+        c.id,
+        CASE
+          WHEN c.metadata->'firstWebsiteAttribution'->>'utmSource' IS NOT NULL
+            AND c.metadata->'firstWebsiteAttribution'->>'utmSource' <> ''
+            THEN lower(c.metadata->'firstWebsiteAttribution'->>'utmSource')
+          WHEN COALESCE(
+            NULLIF(c.metadata->'firstWebsiteAttribution'->>'referrerUrl', ''),
+            NULLIF(c.metadata->'firstWebsiteAttribution'->>'firstReferrerUrl', ''),
+            ''
+          ) = '' THEN 'direct'
+          WHEN COALESCE(c.metadata->'firstWebsiteAttribution'->>'referrerUrl', c.metadata->'firstWebsiteAttribution'->>'firstReferrerUrl', '') ILIKE '%google.%' THEN 'google'
+          WHEN COALESCE(c.metadata->'firstWebsiteAttribution'->>'referrerUrl', c.metadata->'firstWebsiteAttribution'->>'firstReferrerUrl', '') ILIKE '%bing.%' THEN 'bing'
+          ELSE 'referral'
+        END AS first_source,
+        CASE
+          WHEN NULLIF(c.metadata->'firstWebsiteAttribution'->>'utmMedium', '') IS NOT NULL
+            THEN lower(c.metadata->'firstWebsiteAttribution'->>'utmMedium')
+          WHEN COALESCE(c.metadata->'firstWebsiteAttribution'->>'referrerUrl', c.metadata->'firstWebsiteAttribution'->>'firstReferrerUrl', '') = '' THEN 'none'
+          WHEN COALESCE(c.metadata->'firstWebsiteAttribution'->>'referrerUrl', c.metadata->'firstWebsiteAttribution'->>'firstReferrerUrl', '') ILIKE '%google.%'
+            OR COALESCE(c.metadata->'firstWebsiteAttribution'->>'referrerUrl', c.metadata->'firstWebsiteAttribution'->>'firstReferrerUrl', '') ILIKE '%bing.%' THEN 'organic'
+          ELSE 'referral'
+        END AS first_medium,
+        COALESCE(
+          NULLIF(c.metadata->'firstWebsiteAttribution'->>'landingPage', ''),
+          NULLIF(c.metadata->'firstWebsiteAttribution'->>'firstLandingPage', ''),
+          '(unknown)'
+        ) AS first_landing_page,
+        COALESCE(NULLIF(c.metadata->'lastWebsiteAttribution'->>'utmSource', ''), 'direct') AS last_source,
+        COALESCE(NULLIF(c.metadata->'lastWebsiteAttribution'->>'utmMedium', ''), 'none') AS last_medium,
+        COALESCE(
+          NULLIF(c.metadata->'latestWebsiteConversion'->>'conversionPage', ''),
+          NULLIF(c.metadata->'latestWebsiteLead'->>'conversionPage', ''),
+          NULLIF(c.metadata->'lastWebsiteAttribution'->>'landingPage', ''),
+          NULLIF(c.metadata->'lastWebsiteAttribution'->>'lastLandingPage', ''),
+          '(unknown)'
+        ) AS conversion_page,
+        lower(COALESCE(c.metadata->>'leadQuality', '')) AS lead_quality,
+        CASE
+          WHEN COALESCE(c.metadata->>'websiteLeadCount', '') ~ '^\\d+$'
+            THEN GREATEST((c.metadata->>'websiteLeadCount')::int, 1)
+          ELSE 1
+        END AS submission_count
+      FROM contacts c
+      WHERE c.tenant_id = $1
+        AND (c.source = 'website' OR 'website_lead' = ANY(COALESCE(c.tags, ARRAY[]::text[])))
+        ${timeWhere}
+    ),
+    deal_rollup AS (
+      SELECT
+        d.contact_id,
+        COUNT(*) FILTER (WHERE d.stage = 'won')::int AS won_deals,
+        COALESCE(SUM(COALESCE(d.deal_value, 0)) FILTER (WHERE d.stage = 'won'), 0)::bigint AS won_deal_value
+      FROM deals d
+      WHERE d.tenant_id = $1
+        AND COALESCE(d.metadata->>'archived', 'false') <> 'true'
+      GROUP BY d.contact_id
+    ),
+    cohort AS (
+      SELECT
+        wc.*,
+        COALESCE(dr.won_deals, 0) AS won_deals,
+        COALESCE(dr.won_deal_value, 0) AS won_deal_value
+      FROM website_contacts wc
+      LEFT JOIN deal_rollup dr ON dr.contact_id = wc.id
+    )
+  `;
+
+  const dimensionQuery = (dimensionSql: string) => `${websiteCte}
+    SELECT
+      ${dimensionSql} AS label,
+      COUNT(*)::int AS leads,
+      COALESCE(SUM(submission_count), 0)::int AS submissions,
+      COUNT(*) FILTER (WHERE lead_quality <> '')::int AS reviewed,
+      COUNT(*) FILTER (WHERE lead_quality IN ('hot', 'good'))::int AS qualified,
+      COALESCE(SUM(won_deals), 0)::int AS won_deals,
+      COALESCE(SUM(won_deal_value), 0)::bigint AS won_deal_value
+    FROM cohort
+    GROUP BY ${dimensionSql}
+    ORDER BY won_deal_value DESC, qualified DESC, leads DESC
+    LIMIT 50
+  `;
+
+  try {
+    const [totalsResult, firstSourcesResult, lastSourcesResult, firstPagesResult, conversionPagesResult] = await Promise.all([
+      pool.query(`${websiteCte}
+        SELECT
+          COUNT(*)::int AS leads,
+          COALESCE(SUM(submission_count), 0)::int AS submissions,
+          COUNT(*) FILTER (WHERE lead_quality <> '')::int AS reviewed,
+          COUNT(*) FILTER (WHERE lead_quality IN ('hot', 'good'))::int AS qualified,
+          COALESCE(SUM(won_deals), 0)::int AS won_deals,
+          COALESCE(SUM(won_deal_value), 0)::bigint AS won_deal_value
+        FROM cohort
+      `, params),
+      pool.query(dimensionQuery(`first_source || CASE WHEN first_medium <> '' THEN ' · ' || first_medium ELSE '' END`), params),
+      pool.query(dimensionQuery(`last_source || CASE WHEN last_medium <> '' THEN ' · ' || last_medium ELSE '' END`), params),
+      pool.query(dimensionQuery('first_landing_page'), params),
+      pool.query(dimensionQuery('conversion_page'), params),
+    ]);
+
+    const normalizeRows = (rows: Array<Record<string, unknown>>) => rows.map(row => ({
+      label: String(row.label || '(unknown)'),
+      leads: Number(row.leads) || 0,
+      submissions: Number(row.submissions) || 0,
+      reviewed: Number(row.reviewed) || 0,
+      qualified: Number(row.qualified) || 0,
+      wonDeals: Number(row.won_deals) || 0,
+      wonDealValue: Number(row.won_deal_value) || 0,
+    }));
+    const totalsRow = (totalsResult.rows[0] || {}) as Record<string, unknown>;
+    const reviewed = Number(totalsRow.reviewed) || 0;
+    const qualified = Number(totalsRow.qualified) || 0;
+    const leads = Number(totalsRow.leads) || 0;
+
+    res.json({
+      window: useCustom ? { since, until } : { days },
+      totals: {
+        leads,
+        submissions: Number(totalsRow.submissions) || 0,
+        reviewed,
+        qualified,
+        wonDeals: Number(totalsRow.won_deals) || 0,
+        wonDealValue: Number(totalsRow.won_deal_value) || 0,
+        qualificationRate: reviewed > 0 ? Math.round((qualified / reviewed) * 100) : 0,
+        reviewRate: leads > 0 ? Math.round((reviewed / leads) * 100) : 0,
+      },
+      firstSources: normalizeRows(firstSourcesResult.rows as Array<Record<string, unknown>>),
+      lastSources: normalizeRows(lastSourcesResult.rows as Array<Record<string, unknown>>),
+      firstLandingPages: normalizeRows(firstPagesResult.rows as Array<Record<string, unknown>>),
+      conversionPages: normalizeRows(conversionPagesResult.rows as Array<Record<string, unknown>>),
+    });
+  } catch (e: unknown) {
+    res.status(500).json({ error: e instanceof Error ? e.message : 'Failed to fetch website attribution' });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // GET /api/analytics/attribution — UTM attribution report
 // ---------------------------------------------------------------------------
 router.get('/attribution', requirePermission('REPORTS_VIEW'), async (req: Request, res: Response) => {
