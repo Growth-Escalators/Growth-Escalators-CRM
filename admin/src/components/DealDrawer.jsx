@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { apiFetch } from '../lib/api.js';
 import { Badge } from './ui/index.js';
+import WebsiteLeadIntelligence from './WebsiteLeadIntelligence.jsx';
 
 function fmtInr(val) {
   if (!val || val <= 0) return null;
@@ -9,12 +10,13 @@ function fmtInr(val) {
 }
 
 const SOURCE_LABELS = {
-  form: 'Website Form', paid_ad: 'Paid Ad', referral: 'Referral',
+  form: 'Website Form', website: 'Website', agency_landing: 'Agency Landing', paid_ad: 'Paid Ad', referral: 'Referral',
   cold_outreach: 'Cold Outreach', checkout: 'Checkout', inbound: 'Inbound Call',
 };
 
 export default function DealDrawer({ dealId, onClose, onViewContact, onUpdated }) {
   const [deal, setDeal] = useState(null);
+  const [contact, setContact] = useState(null);
   const [activities, setActivities] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(null);
@@ -27,21 +29,33 @@ export default function DealDrawer({ dealId, onClose, onViewContact, onUpdated }
     setActivities(Array.isArray(acts) ? acts : []);
   }, [dealId]);
 
-  useEffect(() => {
+  const loadDrawer = useCallback(async () => {
     if (!dealId) return;
     setLoading(true);
     setLoadError(null);
-    Promise.all([
-      apiFetch(`/api/deals/${dealId}`),
-      apiFetch(`/api/deals/${dealId}/activities`),
-    ]).then(([d, acts]) => {
+    try {
+      const [d, acts] = await Promise.all([
+        apiFetch(`/api/deals/${dealId}`),
+        apiFetch(`/api/deals/${dealId}/activities`),
+      ]);
       setDeal(d);
       setActivities(Array.isArray(acts) ? acts : []);
-    }).catch((err) => {
+
+      if (d?.contact_id) {
+        const contactPayload = await apiFetch(`/api/contacts/${d.contact_id}`).catch(() => null);
+        setContact(contactPayload?.contact ?? null);
+      } else {
+        setContact(null);
+      }
+    } catch (err) {
       setLoadError(err?.message || 'Failed to load deal');
       console.error('[DealDrawer] load failed for', dealId, err);
-    }).finally(() => setLoading(false));
+    } finally {
+      setLoading(false);
+    }
   }, [dealId]);
+
+  useEffect(() => { loadDrawer(); }, [loadDrawer]);
 
   async function addNote() {
     if (!noteText.trim()) return;
@@ -53,6 +67,16 @@ export default function DealDrawer({ dealId, onClose, onViewContact, onUpdated }
     setNoteText('');
     await loadActivities();
     setAddingNote(false);
+  }
+
+  async function patchContact(updates) {
+    if (!deal?.contact_id) return;
+    const updated = await apiFetch(`/api/contacts/${deal.contact_id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(updates),
+    });
+    if (updated) setContact((prev) => ({ ...(prev || {}), ...updated }));
+    onUpdated?.();
   }
 
   function startEdit() {
@@ -80,16 +104,10 @@ export default function DealDrawer({ dealId, onClose, onViewContact, onUpdated }
         ...(editValues.notes !== undefined ? { notes: editValues.notes || null } : {}),
       }),
     });
-    // Re-fetch deal
-    const [d, acts] = await Promise.all([
-      apiFetch(`/api/deals/${dealId}`),
-      apiFetch(`/api/deals/${dealId}/activities`),
-    ]);
-    setDeal(d);
-    setActivities(Array.isArray(acts) ? acts : []);
+    await loadDrawer();
     setEditValues(null);
     setAddingNote(false);
-    if (onUpdated) onUpdated();
+    onUpdated?.();
   }
 
   function fmtDate(d) {
@@ -97,8 +115,20 @@ export default function DealDrawer({ dealId, onClose, onViewContact, onUpdated }
     return new Date(d).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short' });
   }
 
+  const normalizedDeal = deal ? {
+    ...deal,
+    title: deal.title,
+    stage: deal.stage,
+    dealValue: deal.deal_value,
+    value: deal.value,
+    lostReason: deal.lost_reason,
+    assignedTo: deal.assigned_to,
+  } : null;
+
+  const whatsappHref = deal?.phone ? `https://wa.me/${String(deal.phone).replace(/\D/g, '')}` : null;
+
   return (
-    <div className="fixed inset-y-0 right-0 z-40 w-full max-w-[640px] bg-white shadow-modal flex flex-col border-l border-neutral-200">
+    <div className="fixed inset-y-0 right-0 z-40 w-full max-w-[720px] bg-white shadow-modal flex flex-col border-l border-neutral-200">
       {/* Header */}
       <div className="px-6 py-5 border-b border-neutral-100 flex items-start justify-between shrink-0">
         <div className="flex-1 mr-3 min-w-0">
@@ -120,15 +150,24 @@ export default function DealDrawer({ dealId, onClose, onViewContact, onUpdated }
           )}
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          {deal?.contact_id && (
+          {deal?.email && (
+            <a href={`mailto:${deal.email}`} className="text-xs font-medium text-neutral-600 border border-neutral-200 hover:bg-neutral-50 px-2.5 py-1 rounded-lg">Email</a>
+          )}
+          {deal?.phone && (
+            <a href={`tel:${deal.phone}`} className="text-xs font-medium text-neutral-600 border border-neutral-200 hover:bg-neutral-50 px-2.5 py-1 rounded-lg">Call</a>
+          )}
+          {whatsappHref && (
+            <a href={whatsappHref} target="_blank" rel="noreferrer" className="text-xs font-medium text-success-700 border border-success-200 bg-success-500/10 hover:bg-success-500/20 px-2.5 py-1 rounded-lg">WhatsApp</a>
+          )}
+          {deal?.contact_id && onViewContact && (
             <button
               onClick={() => onViewContact(deal)}
               className="text-xs font-medium text-primary-600 hover:text-primary-800 border border-primary-200 hover:bg-primary-50 px-2.5 py-1 rounded-lg"
             >
-              View Contact
+              Full Contact
             </button>
           )}
-          <button onClick={onClose} className="text-neutral-500 hover:text-neutral-600 p-1 rounded-lg hover:bg-neutral-100">
+          <button onClick={onClose} className="text-neutral-500 hover:text-neutral-600 p-1 rounded-lg hover:bg-neutral-100" aria-label="Close deal details">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/>
             </svg>
@@ -150,10 +189,25 @@ export default function DealDrawer({ dealId, onClose, onViewContact, onUpdated }
         <div className="flex-1 flex items-center justify-center text-neutral-500 text-sm">Deal not found</div>
       ) : (
         <div className="flex-1 overflow-y-auto">
+          {/* One-click lead context: the salesperson should not need a second drawer
+              just to understand why this inbound lead exists. */}
+          {contact && normalizedDeal && (
+            <div className="px-5 py-4 border-b border-neutral-100 bg-white">
+              <WebsiteLeadIntelligence
+                contact={contact}
+                deals={[normalizedDeal]}
+                onPatch={patchContact}
+              />
+            </div>
+          )}
+
           {/* Deal stats grid */}
           <div className="px-5 py-4 border-b border-neutral-100 bg-neutral-50">
             <div className="flex items-center justify-between mb-2">
-              <p className="text-[10px] uppercase tracking-wide text-neutral-500 font-semibold">Deal Info</p>
+              <div>
+                <p className="text-[10px] uppercase tracking-wide text-neutral-500 font-semibold">Opportunity</p>
+                <p className="text-xs text-neutral-400 mt-0.5">Stage, owner, value and close context</p>
+              </div>
               {editValues === null && (
                 <button onClick={startEdit} className="text-xs text-primary-600 hover:text-primary-800 font-medium">Edit</button>
               )}
@@ -218,6 +272,7 @@ export default function DealDrawer({ dealId, onClose, onViewContact, onUpdated }
                   <select value={editValues.source} onChange={e => setEditValues({...editValues, source: e.target.value})}
                     className="w-full border border-neutral-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-400 mt-0.5 bg-white">
                     <option value="">Unknown</option>
+                    <option value="website">Website</option>
                     <option value="form">Website Form</option>
                     <option value="paid_ad">Paid Ad</option>
                     <option value="referral">Referral</option>
@@ -271,7 +326,10 @@ export default function DealDrawer({ dealId, onClose, onViewContact, onUpdated }
 
           {/* Activity Timeline */}
           <div className="px-5 py-4">
-            <p className="text-[10px] uppercase tracking-wide text-neutral-500 mb-3 font-semibold">Activity Timeline</p>
+            <div className="mb-3">
+              <p className="text-[10px] uppercase tracking-wide text-neutral-500 font-semibold">Activity Timeline</p>
+              <p className="text-xs text-neutral-400 mt-0.5">Every pipeline stage move and sales note stays here</p>
+            </div>
             {activities.length === 0 ? (
               <p className="text-sm text-neutral-500 text-center py-6">No activity yet</p>
             ) : (
@@ -316,7 +374,7 @@ export default function DealDrawer({ dealId, onClose, onViewContact, onUpdated }
                 value={noteText}
                 onChange={(e) => setNoteText(e.target.value)}
                 rows={3}
-                placeholder="Add a note…"
+                placeholder="Add a sales note, next step or follow-up context…"
                 className="w-full border border-neutral-200 rounded-xl px-3 py-2.5 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary-400 bg-neutral-50"
               />
               <button
