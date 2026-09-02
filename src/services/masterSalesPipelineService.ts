@@ -18,7 +18,9 @@ export const MASTER_SALES_STAGES = [
   { id: 'closed-lost', name: 'Closed Lost', color: '#DC2626', outcome: 'lost' },
 ] as const;
 
-const MASTER_STAGE_CONFIG = {
+export type MasterSalesStageId = typeof MASTER_SALES_STAGES[number]['id'];
+
+const MASTER_STAGE_CONFIG: Record<MasterSalesStageId, { probability: number }> = {
   'new-lead': { probability: 10 },
   contacted: { probability: 20 },
   'follow-up': { probability: 30 },
@@ -160,6 +162,50 @@ export async function ensureContactInMasterSalesPipeline(input: MasterSalesLeadI
 }
 
 /**
+ * Move the contact's canonical sales opportunity to a stage from a trusted
+ * internal event (for example a confirmed Cal.com booking). Manual movement
+ * still happens through the normal deal PATCH route/drag-and-drop UI.
+ */
+export async function moveMasterSalesContactToStage(input: {
+  tenantId: string;
+  contactId: string;
+  stage: MasterSalesStageId;
+  createdBy?: string;
+}) {
+  const pipeline = await ensureMasterSalesPipeline(input.tenantId);
+  if (!pipeline?.id) return null;
+
+  const [current] = await db.select().from(deals).where(and(
+    eq(deals.tenantId, input.tenantId),
+    eq(deals.contactId, input.contactId),
+    eq(deals.pipelineId, pipeline.id),
+  )).limit(1);
+  if (!current || current.stage === input.stage) return current ?? null;
+
+  const [updated] = await db.update(deals).set({
+    stage: input.stage,
+    updatedAt: new Date(),
+  }).where(and(eq(deals.id, current.id), eq(deals.tenantId, input.tenantId))).returning();
+
+  const probability = MASTER_STAGE_CONFIG[input.stage]?.probability;
+  if (probability !== undefined) {
+    await pool.query(
+      `UPDATE deals SET probability = $1 WHERE tenant_id = $2 AND id = $3`,
+      [probability, input.tenantId, current.id],
+    ).catch(() => {});
+  }
+
+  await pool.query(
+    `INSERT INTO deal_activities
+       (tenant_id, deal_id, contact_id, activity_type, from_stage, to_stage, created_by)
+     VALUES ($1, $2, $3, 'stage_change', $4, $5, $6)`,
+    [input.tenantId, current.id, input.contactId, current.stage, input.stage, input.createdBy || 'automation'],
+  ).catch((error) => logger.warn({ error }, '[master-sales] stage activity log failed'));
+
+  return updated ?? current;
+}
+
+/**
  * Catch up historical website/agency contacts that pre-date automatic deal
  * creation. Idempotent and deliberately bounded; the next process restart or
  * lead intake can continue any unusually large backlog.
@@ -219,9 +265,13 @@ export async function backfillInboundContactsToMasterSalesPipeline(tenantId: str
   const createdIds = result.rows.map((row) => String(row.id));
   if (createdIds.length > 0) {
     await pool.query(
-      `UPDATE deals
-          SET source = 'website'
-        WHERE tenant_id = $1 AND id = ANY($2::uuid[])`,
+      `UPDATE deals d
+          SET source = CASE WHEN c.source = 'agency_landing' THEN 'agency_landing' ELSE 'website' END
+         FROM contacts c
+        WHERE d.tenant_id = $1
+          AND c.tenant_id = $1
+          AND c.id = d.contact_id
+          AND d.id = ANY($2::uuid[])`,
       [tenantId, createdIds],
     ).catch(() => {});
   }
