@@ -1,6 +1,7 @@
 import { pool } from '../db';
 import logger from '../utils/logger';
 import { sendCapiEvent } from './metaCapi';
+import { sendGoogleAdsLeadConversion } from './googleAdsConversions';
 
 type SupportedOutcomeStage = 'interested' | 'closed-won';
 
@@ -53,6 +54,16 @@ function isMetaAttribution(first: AttributionContext, last: AttributionContext):
   return Boolean(first.fbclid || last.fbclid || /(^|[^a-z])(facebook|instagram|meta|fb)([^a-z]|$)/i.test(haystack));
 }
 
+function isGooglePaidAttribution(first: AttributionContext, last: AttributionContext): boolean {
+  return [first, last].some((touch) => {
+    const source = text(touch.utmSource).toLowerCase();
+    const medium = text(touch.utmMedium).toLowerCase();
+    const googleSource = source === 'google' || source === 'googleads' || source === 'google-ads';
+    const paidMedium = ['cpc', 'ppc', 'paid', 'paid_search', 'paid-search', 'search'].includes(medium);
+    return googleSource && paidMedium;
+  });
+}
+
 function fbcFromAttribution(first: AttributionContext, last: AttributionContext): string | undefined {
   const chosen = last.fbclid ? last : first.fbclid ? first : null;
   if (!chosen?.fbclid) return undefined;
@@ -74,13 +85,13 @@ function sourceUrl(metadata: Record<string, unknown>, first: AttributionContext,
 }
 
 /**
- * Sends quality/revenue outcomes back to Meta only for Meta-attributed website
- * leads on the canonical Master Sales Pipeline. This is intentionally
+ * Sends quality/revenue outcomes back to the matching paid platform only for
+ * website leads on the canonical Master Sales Pipeline. This is intentionally
  * best-effort: a CRM stage change is the source of truth and must never fail
- * because Meta is unavailable or unconfigured.
+ * because an ad platform is unavailable or unconfigured.
  *
- * Stable event IDs mean moving a deal away from and back into an outcome stage
- * cannot double-count the same QualifiedLead / ClosedWon conversion in Meta.
+ * Stable event/order IDs mean moving a deal away from and back into an outcome
+ * stage cannot double-count the same Qualified / Closed Won conversion.
  */
 export async function sendSalesOutcomeFeedback(input: OutcomeFeedbackInput): Promise<void> {
   const stage = input.stage.toLowerCase() as SupportedOutcomeStage;
@@ -131,47 +142,64 @@ export async function sendSalesOutcomeFeedback(input: OutcomeFeedbackInput): Pro
     const first = attribution(metadata.firstWebsiteAttribution);
     const last = attribution(metadata.lastWebsiteAttribution);
     const isWebsiteLead = contact.source === 'website' || Boolean(metadata.firstWebsiteAttribution);
-    if (!isWebsiteLead || !isMetaAttribution(first, last)) return;
+    if (!isWebsiteLead) return;
 
-    const eventName = stage === 'interested' ? 'QualifiedLead' : 'ClosedWon';
-    const eventId = `crm_${eventName.toLowerCase()}_${input.tenantId}_${input.dealId}`;
     const canonicalDealValue = Number(contact.deal_value ?? input.dealValue ?? 0);
     const eventValue = stage === 'closed-won' && canonicalDealValue > 0
       ? canonicalDealValue
       : undefined;
+    const outcomeKey = stage === 'interested' ? 'qualified' : 'closed_won';
+    const stableId = `crm_${outcomeKey}_${input.tenantId}_${input.dealId}`;
 
-    const sent = await sendCapiEvent({
-      eventName,
-      eventId,
-      actionSource: 'system_generated',
-      eventSourceUrl: sourceUrl(metadata, first, last),
-      customer: {
-        contactId: input.contactId,
+    const sends: Promise<unknown>[] = [];
+
+    if (isMetaAttribution(first, last)) {
+      const eventName = stage === 'interested' ? 'QualifiedLead' : 'ClosedWon';
+      sends.push(sendCapiEvent({
+        eventName,
+        eventId: stableId,
+        actionSource: 'system_generated',
+        eventSourceUrl: sourceUrl(metadata, first, last),
+        customer: {
+          contactId: input.contactId,
+          email: contact.email || undefined,
+          phone: contact.phone || undefined,
+          firstName: contact.first_name || undefined,
+          lastName: contact.last_name || undefined,
+          city: contact.city || undefined,
+          country: 'in',
+          fbc: fbcFromAttribution(first, last),
+        },
+        value: eventValue,
+        currency: eventValue !== undefined ? 'INR' : undefined,
+        contentName: stage === 'interested' ? 'Qualified Growth Escalators Lead' : 'Growth Escalators Closed Won',
+        contentCategory: 'crm_outcome',
+        customData: {
+          crm_stage: stage,
+          first_utm_source: text(first.utmSource) || undefined,
+          last_utm_source: text(last.utmSource) || undefined,
+          first_utm_campaign: text(first.utmCampaign) || undefined,
+          last_utm_campaign: text(last.utmCampaign) || undefined,
+        },
+      }).then((sent) => {
+        if (!sent.success) {
+          logger.warn({ dealId: input.dealId, eventName, error: sent.error }, '[sales-outcome-feedback] Meta CAPI not sent');
+        }
+      }));
+    }
+
+    if (isGooglePaidAttribution(first, last)) {
+      sends.push(sendGoogleAdsLeadConversion({
+        outcome: outcomeKey,
+        eventId: stableId,
+        value: eventValue,
         email: contact.email || undefined,
         phone: contact.phone || undefined,
-        firstName: contact.first_name || undefined,
-        lastName: contact.last_name || undefined,
-        city: contact.city || undefined,
-        country: 'in',
-        fbc: fbcFromAttribution(first, last),
-      },
-      value: eventValue,
-      currency: eventValue !== undefined ? 'INR' : undefined,
-      contentName: stage === 'interested' ? 'Qualified Growth Escalators Lead' : 'Growth Escalators Closed Won',
-      contentCategory: 'crm_outcome',
-      customData: {
-        crm_stage: stage,
-        first_utm_source: text(first.utmSource) || undefined,
-        last_utm_source: text(last.utmSource) || undefined,
-        first_utm_campaign: text(first.utmCampaign) || undefined,
-        last_utm_campaign: text(last.utmCampaign) || undefined,
-      },
-    });
-
-    if (!sent.success) {
-      logger.warn({ dealId: input.dealId, eventName, error: sent.error }, '[sales-outcome-feedback] Meta CAPI not sent');
+      }));
     }
+
+    if (sends.length > 0) await Promise.allSettled(sends);
   } catch (error) {
-    logger.warn({ error, dealId: input.dealId, stage }, '[sales-outcome-feedback] ignored Meta feedback failure');
+    logger.warn({ error, dealId: input.dealId, stage }, '[sales-outcome-feedback] ignored paid-platform feedback failure');
   }
 }
