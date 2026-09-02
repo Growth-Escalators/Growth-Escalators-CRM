@@ -463,10 +463,15 @@ export function assessWizmatchPilotReadiness(inputs: PilotReadinessInputs): Pilo
     // #160 documented and deliberately left open for retainer_number). Drops
     // the column-level UNIQUE and adds a compound UNIQUE INDEX only; no new
     // table, no ALTER of any other column, no data backfill. Owner-approved.
+    // 54 = WhatsApp lead acknowledgements and monthly tenant usage, plus
+    // consent/opt-out columns on contacts and an idempotency index for inbound
+    // message external ids. This migration is already present on main and is
+    // therefore part of the repository's authorised baseline; this readiness
+    // check only reports filesystem status and does not claim DB application.
     // Bump this ONLY alongside an explicit authorisation for the migration in
     // question — the point of the mark is that an unreviewed migration showing
     // up in a hardening pass still gets surfaced.
-    const AUTHORISED_MIGRATION_HIGH_WATER_MARK = 53;
+    const AUTHORISED_MIGRATION_HIGH_WATER_MARK = 54;
     const unauthorised = sqlFiles
       .map((f) => ({ file: f, idx: parseInt(f.slice(0, 4), 10) }))
       .filter((m) => Number.isFinite(m.idx) && m.idx > AUTHORISED_MIGRATION_HIGH_WATER_MARK)

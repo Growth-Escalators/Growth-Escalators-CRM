@@ -2,6 +2,7 @@ import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { apiFetch } from '../lib/api.js';
 import { productPath } from '../lib/auth.js';
 import { safeLower } from '../lib/safe.js';
+import WebsiteLeadIntelligence from './WebsiteLeadIntelligence.jsx';
 
 const BUSINESS_TYPES = [
   { value: 'd2c_brand', label: 'D2C Brand', color: 'bg-success-500/10 text-success-700' },
@@ -481,6 +482,8 @@ export default function ContactSlideIn({ contact: initialContact, onClose, onUpd
                   </div>
                 )}
               </div>
+
+              <WebsiteLeadIntelligence contact={contact} deals={deals} onPatch={patchContact} />
 
               {!isWizmatchContact && (
                 <div className="space-y-2">

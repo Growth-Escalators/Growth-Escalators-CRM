@@ -3,6 +3,7 @@ import Sidebar from '../components/Sidebar.jsx';
 import TopBar from '../components/TopBar.jsx';
 import GlobalSearch from '../components/GlobalSearch.jsx';
 import TeamPerformanceSection from '../components/TeamPerformanceSection.jsx';
+import WebsiteAttributionAnalytics from '../components/WebsiteAttributionAnalytics.jsx';
 import KpiTile from '../components/charts/KpiTile.jsx';
 import LineChart from '../components/charts/LineChart.jsx';
 import FunnelChart from '../components/charts/FunnelChart.jsx';
@@ -534,6 +535,14 @@ export default function AnalyticsPage() {
                   </div>
                 </section>
               )}
+
+              <WebsiteAttributionAnalytics
+                periodId={periodId}
+                days={period.days}
+                customSince={customSince}
+                customUntil={customUntil}
+                customApplied={customApplied}
+              />
             </>
           )}
 

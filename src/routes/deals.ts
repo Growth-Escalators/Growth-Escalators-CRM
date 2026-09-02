@@ -3,6 +3,7 @@ import { Router } from 'express';
 import { eq, and, sql } from 'drizzle-orm';
 import { db, pool, deals, contacts, pipelines } from '../db/index';
 import { findPipelineStageOutcome } from '../services/pipelineStages';
+import { sendSalesOutcomeFeedback } from '../services/salesOutcomeFeedback';
 import { requirePerm } from '../middleware/requirePerm';
 
 const router = Router();
@@ -42,7 +43,7 @@ router.get('/', requirePerm('deals.view'), async (req, res) => {
         pipelineColor: pipelines.color,
       })
       .from(deals)
-      .leftJoin(pipelines, eq(deals.pipelineId, pipelines.id))
+      .leftJoin(pipelines, and(eq(deals.pipelineId, pipelines.id), eq(pipelines.tenantId, tenantId)))
       .where(and(...conditions))
       .limit(Math.min(parseInt(limit, 10), 1000))
       .offset(parseInt(offset, 10));
@@ -91,6 +92,23 @@ router.post('/', requirePerm('deals.create'), async (req, res) => {
     }
   }
 
+  // Contact and pipeline ids are tenant-owned foreign keys from the UI. Fail
+  // closed rather than allowing a guessed cross-tenant id to be attached.
+  const contactRows = await db.select({ id: contacts.id }).from(contacts)
+    .where(and(eq(contacts.id, contactId), eq(contacts.tenantId, tenantId))).limit(1);
+  if (contactRows.length === 0) {
+    res.status(404).json({ error: 'contact not found' });
+    return;
+  }
+  if (pipelineId) {
+    const pipelineRows = await db.select({ id: pipelines.id }).from(pipelines)
+      .where(and(eq(pipelines.id, pipelineId), eq(pipelines.tenantId, tenantId))).limit(1);
+    if (pipelineRows.length === 0) {
+      res.status(404).json({ error: 'pipeline not found' });
+      return;
+    }
+  }
+
   const inserted = await db
     .insert(deals)
     .values({
@@ -103,17 +121,33 @@ router.post('/', requirePerm('deals.create'), async (req, res) => {
 
   // Update contact's lastActivityAt
   await db.update(contacts).set({ lastActivityAt: new Date(), updatedAt: new Date() })
-    .where(eq(contacts.id, contactId));
+    .where(and(eq(contacts.id, contactId), eq(contacts.tenantId, tenantId)));
 
   // Set source/probability via raw SQL (runtime columns, not in schema)
   if ((source !== undefined || probability !== undefined) && inserted[0]?.id) {
     const setClauses: string[] = [];
     const vals: unknown[] = [];
     let idx = 1;
-    if (source !== undefined) { setClauses.push(`source = $${idx++}`); vals.push(source); }
+    if (source !== undefined) { setClauses.push(`source = $${idx++}`); vals.push(source || null); }
     if (probability !== undefined) { setClauses.push(`probability = $${idx++}`); vals.push(probability); }
+    vals.push(tenantId);
+    const tenantIdx = idx++;
     vals.push(inserted[0].id);
-    pool.query(`UPDATE deals SET ${setClauses.join(', ')} WHERE id = $${idx}`, vals).catch(() => {});
+    const idIdx = idx;
+    await pool.query(
+      `UPDATE deals SET ${setClauses.join(', ')} WHERE tenant_id = $${tenantIdx} AND id = $${idIdx}`,
+      vals,
+    ).catch(() => {});
+  }
+
+  if (inserted[0]?.id && stage) {
+    void sendSalesOutcomeFeedback({
+      tenantId,
+      dealId: inserted[0].id,
+      contactId,
+      stage,
+      dealValue: Number(inserted[0].dealValue ?? 0),
+    });
   }
 
   res.status(201).json(inserted[0]);
@@ -141,6 +175,15 @@ router.patch('/:id', requirePerm('deals.edit'), async (req, res) => {
     return;
   }
 
+  if (pipelineId !== undefined && pipelineId !== null) {
+    const pipelineRows = await db.select({ id: pipelines.id }).from(pipelines)
+      .where(and(eq(pipelines.id, pipelineId), eq(pipelines.tenantId, tenantId))).limit(1);
+    if (pipelineRows.length === 0) {
+      res.status(404).json({ error: 'pipeline not found' });
+      return;
+    }
+  }
+
   const updates: Partial<typeof deals.$inferInsert> = { updatedAt: new Date() };
   if (stage !== undefined) updates.stage = stage;
   if (value !== undefined) updates.value = value;
@@ -159,21 +202,32 @@ router.patch('/:id', requirePerm('deals.edit'), async (req, res) => {
     : 'open';
   if (stage !== undefined && stageOutcome !== 'open' && !closedAt) {
     updates.closedAt = new Date();
+  } else if (stage !== undefined && stageOutcome === 'open') {
+    // Reopening/moving a deal out of a terminal stage should clear stale close
+    // dates; otherwise cycle/forecast analytics continue treating it as closed.
+    updates.closedAt = null;
   } else if (closedAt !== undefined) {
     updates.closedAt = new Date(closedAt);
   }
 
-  const updated = await db.update(deals).set(updates).where(eq(deals.id, id)).returning();
+  const updated = await db.update(deals).set(updates)
+    .where(and(eq(deals.id, id), eq(deals.tenantId, tenantId))).returning();
 
   // Update source/probability via raw SQL (columns added at runtime, not in schema)
   if (source !== undefined || probability !== undefined) {
     const setClauses: string[] = [];
     const vals: unknown[] = [];
     let idx = 1;
-    if (source !== undefined) { setClauses.push(`source = $${idx++}`); vals.push(source); }
+    if (source !== undefined) { setClauses.push(`source = $${idx++}`); vals.push(source || null); }
     if (probability !== undefined) { setClauses.push(`probability = $${idx++}`); vals.push(probability); }
+    vals.push(tenantId);
+    const tenantIdx = idx++;
     vals.push(id);
-    await pool.query(`UPDATE deals SET ${setClauses.join(', ')} WHERE id = $${idx}`, vals);
+    const idIdx = idx;
+    await pool.query(
+      `UPDATE deals SET ${setClauses.join(', ')} WHERE tenant_id = $${tenantIdx} AND id = $${idIdx}`,
+      vals,
+    );
   }
 
   // Log stage change to deal_activities
@@ -188,23 +242,39 @@ router.patch('/:id', requirePerm('deals.edit'), async (req, res) => {
   // Update contact lastActivityAt when stage changes
   if (stage !== undefined && stage !== existing[0].stage) {
     await db.update(contacts).set({ lastActivityAt: new Date(), updatedAt: new Date() })
-      .where(eq(contacts.id, existing[0].contactId));
+      .where(and(eq(contacts.id, existing[0].contactId), eq(contacts.tenantId, tenantId)));
+
+    // Closed-loop ad feedback is best-effort and only sends for the canonical
+    // Master Sales Pipeline + Meta-attributed website leads. A provider failure
+    // can never affect the authoritative CRM stage change above.
+    void sendSalesOutcomeFeedback({
+      tenantId,
+      dealId: id,
+      contactId: existing[0].contactId,
+      stage: String(stage),
+      dealValue: Number(updated[0]?.dealValue ?? existing[0].dealValue ?? 0),
+    });
 
     // ClickUp stage-transition tasks removed — ClickUp dropped 2026-05-09
   }
 
   // Stage automation: fire email + task if stage_config defines automations
   if (stage !== undefined && stage !== existing[0].stage && updated[0]?.pipelineId) {
-    const pipelineId = updated[0].pipelineId;
-    pool.query(`SELECT stage_config FROM pipelines WHERE id = $1`, [pipelineId])
+    const activePipelineId = updated[0].pipelineId;
+    pool.query(`SELECT stage_config FROM pipelines WHERE id = $1 AND tenant_id = $2`, [activePipelineId, tenantId])
       .then(async (pcRes) => {
         const stageConfig = pcRes.rows[0]?.stage_config ?? {};
         const cfg = stageConfig[stage as string] as { probability?: number; automation?: { sendEmailTemplateId?: string; createTask?: { title: string; dueInDays?: number } } } | undefined;
         if (!cfg) return;
 
-        // Apply default probability if deal has no probability set yet
+        // Apply the configured probability for this stage. This intentionally
+        // follows stage movement rather than only filling NULL so the weighted
+        // forecast reflects the deal's current position.
         if (cfg.probability !== undefined) {
-          await pool.query(`UPDATE deals SET probability = $1 WHERE id = $2 AND probability IS NULL`, [cfg.probability, id]);
+          await pool.query(
+            `UPDATE deals SET probability = $1 WHERE id = $2 AND tenant_id = $3`,
+            [cfg.probability, id, tenantId],
+          );
         }
 
         // Send email automation
@@ -214,14 +284,18 @@ router.patch('/:id', requirePerm('deals.edit'), async (req, res) => {
             const contactRes = await pool.query(
               `SELECT cc.channel_value AS email, c.first_name
                FROM contacts c
-               LEFT JOIN contact_channels cc ON cc.contact_id = c.id AND cc.channel_type = 'email' AND cc.is_primary = true
-               WHERE c.id = $1 LIMIT 1`,
-              [existing[0].contactId]
+               LEFT JOIN contact_channels cc
+                 ON cc.contact_id = c.id
+                AND cc.tenant_id = c.tenant_id
+                AND cc.channel_type = 'email'
+                AND cc.is_primary = true
+               WHERE c.id = $1 AND c.tenant_id = $2 LIMIT 1`,
+              [existing[0].contactId, tenantId]
             );
             const contactRow = contactRes.rows[0];
             const templateRes = await pool.query(
-              `SELECT subject, body_html AS body FROM email_templates WHERE id = $1 LIMIT 1`,
-              [cfg.automation.sendEmailTemplateId]
+              `SELECT subject, body_html AS body FROM email_templates WHERE id = $1 AND tenant_id = $2 LIMIT 1`,
+              [cfg.automation.sendEmailTemplateId, tenantId]
             );
             const tpl = templateRes.rows[0];
             if (contactRow?.email && tpl) {
@@ -299,10 +373,32 @@ router.post('/bulk-create', requirePerm('deals.bulk'), async (req, res) => {
     return;
   }
 
+  // Only create for contacts owned by the current tenant. Invalid/cross-tenant
+  // ids are treated as skipped rather than being allowed into a deal row.
+  const ownedContacts = await db.select({ id: contacts.id }).from(contacts).where(and(
+    eq(contacts.tenantId, tenantId),
+    sql`${contacts.id} = ANY(ARRAY[${sql.join(contactIds.map((id) => sql`${id}::uuid`), sql`, `)}])`,
+  ));
+  const ownedIds = new Set(ownedContacts.map((row) => row.id));
+  const validContactIds = contactIds.filter((id) => ownedIds.has(id));
+  if (validContactIds.length === 0) {
+    res.json({ created: [], skipped: contactIds.length });
+    return;
+  }
+
+  if (pipelineId) {
+    const pipelineRows = await db.select({ id: pipelines.id }).from(pipelines)
+      .where(and(eq(pipelines.id, pipelineId), eq(pipelines.tenantId, tenantId))).limit(1);
+    if (pipelineRows.length === 0) {
+      res.status(404).json({ error: 'pipeline not found' });
+      return;
+    }
+  }
+
   // Find contacts that already have a deal in this pipeline
   const existingConditions = [
     eq(deals.tenantId, tenantId),
-    sql`${deals.contactId} = ANY(ARRAY[${sql.join(contactIds.map((id) => sql`${id}::uuid`), sql`, `)}])`,
+    sql`${deals.contactId} = ANY(ARRAY[${sql.join(validContactIds.map((id) => sql`${id}::uuid`), sql`, `)}])`,
   ] as ReturnType<typeof eq>[];
   if (pipelineId) existingConditions.push(eq(deals.pipelineId, pipelineId));
   else if (serviceType) existingConditions.push(eq(deals.serviceType, serviceType));
@@ -310,7 +406,7 @@ router.post('/bulk-create', requirePerm('deals.bulk'), async (req, res) => {
   const existing = await db.select({ contactId: deals.contactId }).from(deals)
     .where(and(...existingConditions));
   const existingIds = new Set(existing.map((r) => r.contactId));
-  const toCreate = contactIds.filter((id) => !existingIds.has(id));
+  const toCreate = validContactIds.filter((id) => !existingIds.has(id));
 
   if (toCreate.length === 0) {
     res.json({ created: [], skipped: contactIds.length });
@@ -325,7 +421,20 @@ router.post('/bulk-create', requirePerm('deals.bulk'), async (req, res) => {
 
   // Update lastActivityAt for created contacts
   await db.update(contacts).set({ lastActivityAt: new Date(), updatedAt: new Date() })
-    .where(sql`${contacts.id} = ANY(ARRAY[${sql.join(toCreate.map((id) => sql`${id}::uuid`), sql`, `)}])`);
+    .where(and(
+      eq(contacts.tenantId, tenantId),
+      sql`${contacts.id} = ANY(ARRAY[${sql.join(toCreate.map((id) => sql`${id}::uuid`), sql`, `)}])`,
+    ));
+
+  for (const deal of created) {
+    void sendSalesOutcomeFeedback({
+      tenantId,
+      dealId: deal.id,
+      contactId: deal.contactId,
+      stage,
+      dealValue: Number(deal.dealValue ?? 0),
+    });
+  }
 
   res.status(201).json({ created, skipped: contactIds.length - toCreate.length });
   } catch (e: unknown) {
@@ -359,13 +468,29 @@ router.post('/bulk-update', requirePerm('deals.bulk'), async (req, res) => {
     return;
   }
 
+  if (upd.pipelineId !== undefined) {
+    const pipelineRows = await db.select({ id: pipelines.id }).from(pipelines)
+      .where(and(eq(pipelines.id, upd.pipelineId), eq(pipelines.tenantId, tenantId))).limit(1);
+    if (pipelineRows.length === 0) {
+      res.status(404).json({ error: 'pipeline not found' });
+      return;
+    }
+  }
+
+  const feedbackDeals = upd.stage !== undefined
+    ? await db.select({ id: deals.id, contactId: deals.contactId, dealValue: deals.dealValue })
+        .from(deals)
+        .where(and(
+          eq(deals.tenantId, tenantId),
+          sql`${deals.id} = ANY(ARRAY[${sql.join(dealIds.map((id) => sql`${id}::uuid`), sql`, `)}])`,
+        ))
+    : [];
+
   const updates: Partial<typeof deals.$inferInsert> = { updatedAt: new Date() };
   if (upd.stage !== undefined) updates.stage = upd.stage;
   if (upd.assignedTo !== undefined) updates.assignedTo = upd.assignedTo;
   if (upd.pipelineId !== undefined) updates.pipelineId = upd.pipelineId;
 
-  // Only run the column update if we have something to set beyond updatedAt.
-  // (archived alone hits the jsonb_set pass below.)
   const hasColumnUpdate = upd.stage !== undefined || upd.assignedTo !== undefined || upd.pipelineId !== undefined;
   if (hasColumnUpdate) {
     await db.update(deals).set(updates).where(
@@ -376,7 +501,6 @@ router.post('/bulk-update', requirePerm('deals.bulk'), async (req, res) => {
     );
   }
 
-  // Archive flag → patch metadata.archived without clobbering other keys
   if (upd.archived !== undefined) {
     await pool.query(
       `UPDATE deals
@@ -385,6 +509,18 @@ router.post('/bulk-update', requirePerm('deals.bulk'), async (req, res) => {
        WHERE tenant_id = $2 AND id = ANY($3::uuid[])`,
       [upd.archived, tenantId, dealIds],
     );
+  }
+
+  if (upd.stage !== undefined) {
+    for (const deal of feedbackDeals) {
+      void sendSalesOutcomeFeedback({
+        tenantId,
+        dealId: deal.id,
+        contactId: deal.contactId,
+        stage: upd.stage,
+        dealValue: Number(deal.dealValue ?? 0),
+      });
+    }
   }
 
   res.json({ updated: dealIds.length });
@@ -401,10 +537,23 @@ router.post('/bulk-update', requirePerm('deals.bulk'), async (req, res) => {
 router.post('/add-or-update', requirePerm('deals.bulk'), async (req, res) => {
   try {
   const tenantId = req.user!.tenantId;
-  const { contactId, pipelineId, stage, assignedTo, dealValue, notes, title = 'Opportunity' } = req.body;
+  const { contactId, pipelineId, stage, assignedTo, dealValue, notes, source, title = 'Opportunity' } = req.body;
 
   if (!contactId || !pipelineId || !stage) {
     res.status(400).json({ error: 'contactId, pipelineId, and stage are required' });
+    return;
+  }
+
+  const [ownedContact] = await db.select({ id: contacts.id }).from(contacts)
+    .where(and(eq(contacts.id, contactId), eq(contacts.tenantId, tenantId))).limit(1);
+  if (!ownedContact) {
+    res.status(404).json({ error: 'contact not found' });
+    return;
+  }
+  const [ownedPipeline] = await db.select({ id: pipelines.id }).from(pipelines)
+    .where(and(eq(pipelines.id, pipelineId), eq(pipelines.tenantId, tenantId))).limit(1);
+  if (!ownedPipeline) {
+    res.status(404).json({ error: 'pipeline not found' });
     return;
   }
 
@@ -416,20 +565,18 @@ router.post('/add-or-update', requirePerm('deals.bulk'), async (req, res) => {
   let result;
   const stageOutcome = await getPipelineStageOutcome(tenantId, pipelineId, stage);
   if (existing.length > 0) {
-    // Update existing deal
     const upd: Partial<typeof deals.$inferInsert> = {
       stage, updatedAt: new Date(),
       ...(assignedTo !== undefined ? { assignedTo } : {}),
       ...(dealValue !== undefined ? { dealValue } : {}),
       ...(notes !== undefined ? { notes } : {}),
+      ...(stageOutcome !== 'open' ? { closedAt: new Date() } : { closedAt: null }),
     };
-    if (stageOutcome !== 'open') upd.closedAt = new Date();
 
     const updated = await db.update(deals).set(upd)
-      .where(eq(deals.id, existing[0].id)).returning();
+      .where(and(eq(deals.id, existing[0].id), eq(deals.tenantId, tenantId))).returning();
     result = { deal: updated[0], action: 'updated' };
   } else {
-    // Create new deal
     const inserted = await db.insert(deals).values({
       tenantId, contactId, pipelineId, stage, title, assignedTo, dealValue, notes,
       ...(stageOutcome !== 'open' ? { closedAt: new Date() } : {}),
@@ -437,9 +584,28 @@ router.post('/add-or-update', requirePerm('deals.bulk'), async (req, res) => {
     result = { deal: inserted[0], action: 'created' };
   }
 
+  // Source is a runtime column in this CRM. The Add Deal modal exposes it, so
+  // persist it here rather than silently ignoring the selected value.
+  if (source !== undefined && result.deal?.id) {
+    await pool.query(
+      `UPDATE deals SET source = $1 WHERE tenant_id = $2 AND id = $3`,
+      [source || null, tenantId, result.deal.id],
+    );
+  }
+
   // Update contact lastActivityAt
   await db.update(contacts).set({ lastActivityAt: new Date(), updatedAt: new Date() })
-    .where(eq(contacts.id, contactId));
+    .where(and(eq(contacts.id, contactId), eq(contacts.tenantId, tenantId)));
+
+  if (result.deal?.id) {
+    void sendSalesOutcomeFeedback({
+      tenantId,
+      dealId: result.deal.id,
+      contactId,
+      stage,
+      dealValue: Number(result.deal.dealValue ?? 0),
+    });
+  }
 
   res.json(result);
   } catch (e: unknown) {
@@ -459,8 +625,8 @@ router.get('/export', requirePerm('deals.export'), async (req, res) => {
              c.first_name || ' ' || COALESCE(c.last_name, '') AS contact_name,
              d.deal_value, d.assigned_to, d.created_at, d.closed_at
       FROM deals d
-      LEFT JOIN pipelines p ON p.id = d.pipeline_id
-      LEFT JOIN contacts c ON c.id = d.contact_id
+      LEFT JOIN pipelines p ON p.id = d.pipeline_id AND p.tenant_id = d.tenant_id
+      LEFT JOIN contacts c ON c.id = d.contact_id AND c.tenant_id = d.tenant_id
       WHERE d.tenant_id = ${tenantId}
       ORDER BY d.created_at DESC LIMIT 5000
     `);
@@ -469,7 +635,7 @@ router.get('/export', requirePerm('deals.export'), async (req, res) => {
     const headers = 'Title,Stage,Pipeline,Contact,Value,Assigned To,Created,Closed';
     const csvRows = (rows.rows as Array<Record<string, unknown>>).map(r =>
       [esc(r.title), esc(r.stage), esc(r.pipeline_name), esc(r.contact_name),
-       esc(r.deal_value ? (Number(r.deal_value) / 100).toFixed(2) : ''), esc(r.assigned_to),
+       esc(r.deal_value ?? ''), esc(r.assigned_to),
        esc(r.created_at ? new Date(r.created_at as string).toISOString().slice(0, 10) : ''),
        esc(r.closed_at ? new Date(r.closed_at as string).toISOString().slice(0, 10) : ''),
       ].join(',')
@@ -495,13 +661,13 @@ router.get('/:id', requirePerm('deals.view'), async (req, res) => {
       SELECT d.*,
         c.first_name, c.last_name, c.company_name,
         (SELECT channel_value FROM contact_channels
-          WHERE contact_id = d.contact_id AND channel_type IN ('email') LIMIT 1) AS email,
+          WHERE tenant_id = $2 AND contact_id = d.contact_id AND channel_type IN ('email') LIMIT 1) AS email,
         (SELECT channel_value FROM contact_channels
-          WHERE contact_id = d.contact_id AND channel_type IN ('whatsapp','phone') LIMIT 1) AS phone,
+          WHERE tenant_id = $2 AND contact_id = d.contact_id AND channel_type IN ('whatsapp','phone') LIMIT 1) AS phone,
         p.name AS pipeline_name, p.color AS pipeline_color
       FROM deals d
-      LEFT JOIN contacts c ON c.id = d.contact_id
-      LEFT JOIN pipelines p ON p.id = d.pipeline_id
+      LEFT JOIN contacts c ON c.id = d.contact_id AND c.tenant_id = d.tenant_id
+      LEFT JOIN pipelines p ON p.id = d.pipeline_id AND p.tenant_id = d.tenant_id
       WHERE d.id = $1 AND d.tenant_id = $2
     `, [id, tenantId]);
     if (!result.rows[0]) { res.status(404).json({ error: 'deal not found' }); return; }
