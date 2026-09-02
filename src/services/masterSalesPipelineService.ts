@@ -32,6 +32,10 @@ const MASTER_STAGE_CONFIG: Record<MasterSalesStageId, { probability: number }> =
   'closed-lost': { probability: 0 },
 };
 
+const MASTER_STAGE_ORDER = new Map<MasterSalesStageId, number>(
+  MASTER_SALES_STAGES.map((stage, index) => [stage.id, index]),
+);
+const TERMINAL_MASTER_STAGES = new Set<MasterSalesStageId>(['closed-won', 'closed-lost']);
 const backfillStartedForTenant = new Set<string>();
 
 async function findMasterSalesPipeline(tenantId: string) {
@@ -162,9 +166,13 @@ export async function ensureContactInMasterSalesPipeline(input: MasterSalesLeadI
 }
 
 /**
- * Move the contact's canonical sales opportunity to a stage from a trusted
- * internal event (for example a confirmed Cal.com booking). Manual movement
- * still happens through the normal deal PATCH route/drag-and-drop UI.
+ * Advance the contact's canonical sales opportunity from a trusted internal
+ * event (for example WhatsApp reply or confirmed Cal.com booking).
+ *
+ * Automations are deliberately monotonic: they may advance an open deal but
+ * can never move it backwards or reopen a Won/Lost deal. Manual movement still
+ * happens through the normal deal PATCH route/drag-and-drop UI and remains
+ * fully flexible.
  */
 export async function moveMasterSalesContactToStage(input: {
   tenantId: string;
@@ -182,9 +190,18 @@ export async function moveMasterSalesContactToStage(input: {
   )).limit(1);
   if (!current || current.stage === input.stage) return current ?? null;
 
+  const currentStage = current.stage as MasterSalesStageId;
+  if (TERMINAL_MASTER_STAGES.has(currentStage)) return current;
+
+  const currentRank = MASTER_STAGE_ORDER.get(currentStage) ?? -1;
+  const targetRank = MASTER_STAGE_ORDER.get(input.stage) ?? -1;
+  if (targetRank < 0 || (currentRank >= 0 && targetRank <= currentRank)) return current;
+
+  const targetIsTerminal = TERMINAL_MASTER_STAGES.has(input.stage);
   const [updated] = await db.update(deals).set({
     stage: input.stage,
     updatedAt: new Date(),
+    ...(targetIsTerminal ? { closedAt: new Date() } : {}),
   }).where(and(eq(deals.id, current.id), eq(deals.tenantId, input.tenantId))).returning();
 
   const probability = MASTER_STAGE_CONFIG[input.stage]?.probability;
