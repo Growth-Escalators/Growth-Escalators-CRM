@@ -88,6 +88,13 @@ function TouchCard({ title, touch, kind }) {
   );
 }
 
+function isMasterSalesDeal(deal) {
+  return safeLower(deal?.pipelineName) === 'master sales pipeline'
+    || safeLower(deal?.pipeline_name) === 'master sales pipeline'
+    || safeLower(deal?.pipelineSlug) === 'master-sales'
+    || safeLower(deal?.pipeline_slug) === 'master-sales';
+}
+
 export default function WebsiteLeadIntelligence({ contact, deals = [], onPatch }) {
   const metadata = asObject(contact?.metadata);
   const latestLead = asObject(metadata.latestWebsiteLead);
@@ -102,7 +109,10 @@ export default function WebsiteLeadIntelligence({ contact, deals = [], onPatch }
 
   const quality = String(metadata.leadQuality || '');
   const qualityOption = QUALITY_OPTIONS.find((option) => option.value === quality) || QUALITY_OPTIONS[0];
-  const currentDeal = deals[0] || null;
+  // Contacts can legitimately retain old ecom/direct deals alongside the new
+  // canonical opportunity. Always show the Master Sales deal first so the
+  // commercial outcome here matches the board and attribution dashboard.
+  const currentDeal = deals.find(isMasterSalesDeal) || deals[0] || null;
 
   async function setQuality(value) {
     await onPatch({
