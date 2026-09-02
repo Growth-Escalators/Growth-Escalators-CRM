@@ -36,11 +36,14 @@ interface CustomerData {
   userAgent?: string;
 }
 
+type CapiActionSource = 'website' | 'app' | 'phone_call' | 'chat' | 'physical_store' | 'system_generated' | 'other';
+
 interface CapiEventParams {
   eventName: string;
   eventTime?: number;
   eventId?: string;
   eventSourceUrl?: string;
+  actionSource?: CapiActionSource;
   value?: number;
   currency?: string;
   contentName?: string;
@@ -58,7 +61,7 @@ export async function sendCapiEvent(params: CapiEventParams): Promise<{ success:
     if (!PIXEL_ID) missing.push('META_PIXEL_ID');
     if (!CAPI_TOKEN) missing.push('META_CAPI_TOKEN or META_ACCESS_TOKEN');
     logger.error(`[CAPI] Missing: ${missing.join(', ')} — conversion not sent`);
-    return { success: false, eventId: '', error: `Missing: ${missing.join(', ')}` };
+    return { success: false, eventId: params.eventId || '', error: `Missing: ${missing.join(', ')}` };
   }
 
   const eventId = params.eventId || generateEventId(params.eventName, params.customer.contactId || 'unknown');
@@ -92,8 +95,8 @@ export async function sendCapiEvent(params: CapiEventParams): Promise<{ success:
       event_name: params.eventName,
       event_time: eventTime,
       event_id: eventId,
-      event_source_url: params.eventSourceUrl || 'https://web-production-311da.up.railway.app',
-      action_source: 'website',
+      event_source_url: params.eventSourceUrl || 'https://www.growthescalators.com',
+      action_source: params.actionSource || 'website',
       user_data: userData,
       custom_data: Object.keys(customData).length > 0 ? customData : undefined,
     }],
