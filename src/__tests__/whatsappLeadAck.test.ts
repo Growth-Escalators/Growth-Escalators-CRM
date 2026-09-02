@@ -412,6 +412,53 @@ describe('kapso webhook', () => {
     expect(shouldApplyStatus('read', 'failed')).toBe(true);
     expect(shouldApplyStatus('sent', '')).toBe(false);
   });
+
+  /**
+   * Regression: Kapso payload_version v2 puts the event at the root of the
+   * body, while the handler only read a v1 `data` envelope. Every field came
+   * back empty, handleInbound returned on its unlogged `if (!msg.from)` guard,
+   * and inbound replies plus delivery receipts were dropped for two months
+   * while the endpoint answered 200 to every POST. Nothing errored, so only a
+   * decode-level test catches it.
+   */
+  it('reads the v2 payload, which puts the event at the root', async () => {
+    const { parseKapsoEvent } = await import('../routes/kapsoWebhook');
+    const ev = parseKapsoEvent({
+      message: {
+        id: 'wamid.123',
+        from: '919166000064',
+        text: { body: 'Yes, interested' },
+        kapso: { direction: 'inbound', status: 'received' },
+      },
+      conversation: { id: 'conv_123', phone_number: '919166000064' },
+      phone_number_id: '101013382955175',
+    });
+
+    expect(ev.from).toBe('919166000064');
+    expect(ev.externalId).toBe('wamid.123');
+    expect(ev.text).toBe('Yes, interested');
+    expect(ev.conversationId).toBe('conv_123');
+    expect(ev.direction).toBe('inbound');
+  });
+
+  it('still reads the v1 payload, which wraps the event in `data`', async () => {
+    const { parseKapsoEvent } = await import('../routes/kapsoWebhook');
+    const ev = parseKapsoEvent({
+      event: 'whatsapp.message.received',
+      data: { id: 'wamid.v1', from: '919166000064', text: { body: 'Hello' }, conversation_id: 'c1' },
+    });
+
+    expect(ev.from).toBe('919166000064');
+    expect(ev.externalId).toBe('wamid.v1');
+    expect(ev.text).toBe('Hello');
+    expect(ev.conversationId).toBe('c1');
+  });
+
+  it('never returns a sender for an unrecognised shape, so the guard can log it', async () => {
+    const { parseKapsoEvent } = await import('../routes/kapsoWebhook');
+    expect(parseKapsoEvent({}).from).toBe('');
+    expect(parseKapsoEvent({ data: {} }).from).toBe('');
+  });
 });
 
 // ---------------------------------------------------------------------------
