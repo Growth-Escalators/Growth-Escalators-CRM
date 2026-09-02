@@ -1,6 +1,7 @@
 import { and, eq } from 'drizzle-orm';
 import { db, pool, deals, pipelines } from '../db/index';
 import logger from '../utils/logger';
+import { sendSalesOutcomeFeedback } from './salesOutcomeFeedback';
 
 export const MASTER_SALES_PIPELINE_SLUG = 'master-sales';
 export const MASTER_SALES_PIPELINE_NAME = 'Master Sales Pipeline';
@@ -218,6 +219,16 @@ export async function moveMasterSalesContactToStage(input: {
      VALUES ($1, $2, $3, 'stage_change', $4, $5, $6)`,
     [input.tenantId, current.id, input.contactId, current.stage, input.stage, input.createdBy || 'automation'],
   ).catch((error) => logger.warn({ error }, '[master-sales] stage activity log failed'));
+
+  // CRM stage state remains authoritative. Meta feedback is deliberately
+  // fire-and-forget so a provider outage can never roll back a valid stage move.
+  void sendSalesOutcomeFeedback({
+    tenantId: input.tenantId,
+    dealId: current.id,
+    contactId: input.contactId,
+    stage: input.stage,
+    dealValue: Number(updated?.dealValue ?? current.dealValue ?? 0),
+  });
 
   return updated ?? current;
 }
