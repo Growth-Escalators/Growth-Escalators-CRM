@@ -10,6 +10,10 @@ import { parsePhone } from '../services/phoneService';
 import { assignLead } from '../services/leadAssignmentService';
 import { enqueueAck } from '../services/whatsapp/leadAckService';
 import { WA_CONSENT_TEXT_VERSION } from '../config/constants';
+import {
+  ensureContactInMasterSalesPipeline,
+  scheduleMasterSalesBackfill,
+} from '../services/masterSalesPipelineService';
 
 const router = Router();
 
@@ -88,6 +92,22 @@ router.post('/agency', async (req: Request, res: Response): Promise<void> => {
       updatedAt: now,
       lastActivityAt: now,
     }).where(eq(contacts.id, contact.id));
+
+    // Every inbound sales lead should exist on the operating board. Pipeline
+    // placement is best-effort and must never turn a valid enquiry into a 500.
+    try {
+      await ensureContactInMasterSalesPipeline({
+        tenantId: tenant.id,
+        contactId: contact.id,
+        title: `${agencyName || name} — Agency partnership`,
+        source: 'agency_landing',
+        service: 'White-label / agency partnership',
+        businessVertical: 'agency_owner',
+      });
+    } catch (error) {
+      logger.error({ error }, '[leads/agency] master sales placement failed');
+    }
+    scheduleMasterSalesBackfill(tenant.id);
 
     // Slack ping (fire-and-forget — never block the response). Routed to
     // #sales-bd so the BD team owns follow-up.
@@ -331,6 +351,24 @@ router.post('/website', async (req: Request, res: Response): Promise<void> => {
       lastActivityAt: now,
       updatedAt: now,
     }).where(eq(contacts.id, contact.id));
+
+    // Keep the sales operating board complete. This internal DB placement is
+    // intentionally non-fatal: the CRM contact remains the canonical lead even
+    // if the pipeline table is temporarily unavailable.
+    try {
+      await ensureContactInMasterSalesPipeline({
+        tenantId: tenant.id,
+        contactId: contact.id,
+        title: `${company || name} — ${service || businessVertical || 'Website enquiry'}`,
+        assignedTo,
+        service: service || null,
+        businessVertical,
+        source: 'website',
+      });
+    } catch (error) {
+      logger.error({ error }, '[leads/website] master sales placement failed');
+    }
+    scheduleMasterSalesBackfill(tenant.id);
 
     // One event per successful website form submit: enough to preserve repeat
     // conversions without recording every page view or click in the CRM.
