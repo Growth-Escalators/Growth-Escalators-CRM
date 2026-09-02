@@ -256,12 +256,12 @@ router.get('/team-performance', requirePermission('REPORTS_VIEW'), async (req: R
 });
 
 // ---------------------------------------------------------------------------
-// GET /api/analytics/website-attribution — website lead quality + deal value
+// GET /api/analytics/website-attribution — website lead quality + revenue
 //
 // Cohort semantics: a lead belongs to the period in which the CRM contact was
-// first created. Won deal counts/value are then attributed back to that acquired
-// lead, even if the deal closed later. This answers "which acquisition created
-// valuable customers?" rather than merely "what closed this month?".
+// first created. Later won deal value and actual payments are attributed back
+// to that acquired lead. Payment attribution only applies where billing_clients
+// has crm_contact_id linked to the originating CRM contact.
 // ---------------------------------------------------------------------------
 router.get('/website-attribution', requirePermission('REPORTS_VIEW'), async (req: Request, res: Response) => {
   const tenantId = req.user!.tenantId;
@@ -304,8 +304,26 @@ router.get('/website-attribution', requirePermission('REPORTS_VIEW'), async (req
           NULLIF(c.metadata->'firstWebsiteAttribution'->>'firstLandingPage', ''),
           '(unknown)'
         ) AS first_landing_page,
-        COALESCE(NULLIF(c.metadata->'lastWebsiteAttribution'->>'utmSource', ''), 'direct') AS last_source,
-        COALESCE(NULLIF(c.metadata->'lastWebsiteAttribution'->>'utmMedium', ''), 'none') AS last_medium,
+        COALESCE(
+          NULLIF(c.metadata->'lastWebsiteAttribution'->>'utmSource', ''),
+          NULLIF(c.metadata->'firstWebsiteAttribution'->>'utmSource', ''),
+          CASE
+            WHEN COALESCE(c.metadata->'firstWebsiteAttribution'->>'referrerUrl', c.metadata->'firstWebsiteAttribution'->>'firstReferrerUrl', '') = '' THEN 'direct'
+            WHEN COALESCE(c.metadata->'firstWebsiteAttribution'->>'referrerUrl', c.metadata->'firstWebsiteAttribution'->>'firstReferrerUrl', '') ILIKE '%google.%' THEN 'google'
+            WHEN COALESCE(c.metadata->'firstWebsiteAttribution'->>'referrerUrl', c.metadata->'firstWebsiteAttribution'->>'firstReferrerUrl', '') ILIKE '%bing.%' THEN 'bing'
+            ELSE 'referral'
+          END
+        ) AS last_source,
+        COALESCE(
+          NULLIF(c.metadata->'lastWebsiteAttribution'->>'utmMedium', ''),
+          NULLIF(c.metadata->'firstWebsiteAttribution'->>'utmMedium', ''),
+          CASE
+            WHEN COALESCE(c.metadata->'firstWebsiteAttribution'->>'referrerUrl', c.metadata->'firstWebsiteAttribution'->>'firstReferrerUrl', '') = '' THEN 'none'
+            WHEN COALESCE(c.metadata->'firstWebsiteAttribution'->>'referrerUrl', c.metadata->'firstWebsiteAttribution'->>'firstReferrerUrl', '') ILIKE '%google.%'
+              OR COALESCE(c.metadata->'firstWebsiteAttribution'->>'referrerUrl', c.metadata->'firstWebsiteAttribution'->>'firstReferrerUrl', '') ILIKE '%bing.%' THEN 'organic'
+            ELSE 'referral'
+          END
+        ) AS last_medium,
         COALESCE(
           NULLIF(c.metadata->'latestWebsiteConversion'->>'conversionPage', ''),
           NULLIF(c.metadata->'latestWebsiteLead'->>'conversionPage', ''),
@@ -334,13 +352,27 @@ router.get('/website-attribution', requirePermission('REPORTS_VIEW'), async (req
         AND COALESCE(d.metadata->>'archived', 'false') <> 'true'
       GROUP BY d.contact_id
     ),
+    payment_rollup AS (
+      SELECT
+        bc.crm_contact_id AS contact_id,
+        COALESCE(SUM(p.amount), 0)::bigint AS received_revenue_paise
+      FROM payments p
+      JOIN billing_clients bc
+        ON bc.id = p.client_id
+       AND bc.tenant_id = p.tenant_id
+      WHERE p.tenant_id = $1
+        AND bc.crm_contact_id IS NOT NULL
+      GROUP BY bc.crm_contact_id
+    ),
     cohort AS (
       SELECT
         wc.*,
         COALESCE(dr.won_deals, 0) AS won_deals,
-        COALESCE(dr.won_deal_value, 0) AS won_deal_value
+        COALESCE(dr.won_deal_value, 0) AS won_deal_value,
+        COALESCE(pr.received_revenue_paise, 0) AS received_revenue_paise
       FROM website_contacts wc
       LEFT JOIN deal_rollup dr ON dr.contact_id = wc.id
+      LEFT JOIN payment_rollup pr ON pr.contact_id = wc.id
     )
   `;
 
@@ -352,10 +384,11 @@ router.get('/website-attribution', requirePermission('REPORTS_VIEW'), async (req
       COUNT(*) FILTER (WHERE lead_quality <> '')::int AS reviewed,
       COUNT(*) FILTER (WHERE lead_quality IN ('hot', 'good'))::int AS qualified,
       COALESCE(SUM(won_deals), 0)::int AS won_deals,
-      COALESCE(SUM(won_deal_value), 0)::bigint AS won_deal_value
+      COALESCE(SUM(won_deal_value), 0)::bigint AS won_deal_value,
+      COALESCE(SUM(received_revenue_paise), 0)::bigint AS received_revenue_paise
     FROM cohort
     GROUP BY ${dimensionSql}
-    ORDER BY won_deal_value DESC, qualified DESC, leads DESC
+    ORDER BY received_revenue_paise DESC, won_deal_value DESC, qualified DESC, leads DESC
     LIMIT 50
   `;
 
@@ -368,7 +401,8 @@ router.get('/website-attribution', requirePermission('REPORTS_VIEW'), async (req
           COUNT(*) FILTER (WHERE lead_quality <> '')::int AS reviewed,
           COUNT(*) FILTER (WHERE lead_quality IN ('hot', 'good'))::int AS qualified,
           COALESCE(SUM(won_deals), 0)::int AS won_deals,
-          COALESCE(SUM(won_deal_value), 0)::bigint AS won_deal_value
+          COALESCE(SUM(won_deal_value), 0)::bigint AS won_deal_value,
+          COALESCE(SUM(received_revenue_paise), 0)::bigint AS received_revenue_paise
         FROM cohort
       `, params),
       pool.query(dimensionQuery(`first_source || CASE WHEN first_medium <> '' THEN ' · ' || first_medium ELSE '' END`), params),
@@ -385,6 +419,7 @@ router.get('/website-attribution', requirePermission('REPORTS_VIEW'), async (req
       qualified: Number(row.qualified) || 0,
       wonDeals: Number(row.won_deals) || 0,
       wonDealValue: Number(row.won_deal_value) || 0,
+      receivedRevenuePaise: Number(row.received_revenue_paise) || 0,
     }));
     const totalsRow = (totalsResult.rows[0] || {}) as Record<string, unknown>;
     const reviewed = Number(totalsRow.reviewed) || 0;
@@ -400,6 +435,7 @@ router.get('/website-attribution', requirePermission('REPORTS_VIEW'), async (req
         qualified,
         wonDeals: Number(totalsRow.won_deals) || 0,
         wonDealValue: Number(totalsRow.won_deal_value) || 0,
+        receivedRevenuePaise: Number(totalsRow.received_revenue_paise) || 0,
         qualificationRate: reviewed > 0 ? Math.round((qualified / reviewed) * 100) : 0,
         reviewRate: leads > 0 ? Math.round((reviewed / leads) * 100) : 0,
       },
