@@ -3,7 +3,6 @@ import { and, eq, sql } from 'drizzle-orm';
 import { db, contacts, contactChannels, messages, processedEvents } from '../db/index';
 import { verifyWebhookSignature } from '../services/whatsapp/kapsoClient';
 import { isOptOutMessage } from '../services/whatsapp/outboundPolicy';
-import { normalizeChannelValue } from '../services/contactService';
 import { sendSlackMessage } from '../services/slackService';
 import { getDefaultIngestTenant } from '../services/tenantFeatures';
 import { moveMasterSalesContactToStage } from '../services/masterSalesPipelineService';
@@ -81,7 +80,11 @@ router.post('/kapso', async (req: Request, res: Response): Promise<void> => {
 
 type KapsoBody = {
   event?: string;
+  /** v1 envelope. v2 puts these same fields at the root instead — see parseKapsoEvent. */
   data?: Record<string, unknown>;
+  message?: Record<string, unknown>;
+  conversation?: Record<string, unknown>;
+  phone_number_id?: string;
   object?: string;
   entry?: Array<{ changes?: Array<{ value?: Record<string, unknown> }> }>;
 };
@@ -127,54 +130,108 @@ async function handleEvent(req: Request): Promise<void> {
     return;
   }
 
-  const data = body.data ?? {};
-  const { origin, direction } = classifyEvent(data);
+  const ev = parseKapsoEvent(body);
 
-  if (origin === 'history_sync') {
+  if (ev.origin === 'history_sync') {
     logger.debug('[kapso-webhook] ignoring history_sync backfill event');
     return;
   }
 
   const mappedStatus = STATUS_EVENTS[eventType];
-  if (mappedStatus || (!eventType && data.status)) {
-    await applyStatus(
-      String(data.message_id ?? data.id ?? ''),
-      mappedStatus ?? String(data.status ?? ''),
-      tenantId,
-    );
+  if (mappedStatus || (!eventType && ev.status)) {
+    await applyStatus(ev.externalId, mappedStatus ?? ev.status, tenantId);
     return;
   }
 
-  const looksLikeMessage = eventType === INBOUND_EVENT || (!eventType && (data.text || data.body));
+  const looksLikeMessage = eventType === INBOUND_EVENT || (!eventType && ev.text);
   if (!looksLikeMessage) {
     logger.debug('[kapso-webhook] unhandled event type: ' + (eventType || '(none)'));
     return;
   }
 
-  const text = String(
-    (data.text as Record<string, string> | undefined)?.body ?? data.body ?? data.content ?? '',
-  );
-
-  if (direction === 'outbound' || origin === 'business_app') {
-    await recordAgentMessage({
-      externalId: String(data.id ?? data.message_id ?? ''),
-      to: String(data.to ?? data.phone_number ?? ''),
-      text,
-    }, tenantId);
+  if (ev.direction === 'outbound' || ev.origin === 'business_app') {
+    await recordAgentMessage({ externalId: ev.externalId, to: ev.to, text: ev.text }, tenantId);
     return;
   }
 
   await handleInbound({
-    externalId: String(data.id ?? data.message_id ?? ''),
-    from: String(data.from ?? data.phone_number ?? ''),
-    text,
-    conversationId: data.conversation_id ? String(data.conversation_id) : null,
+    externalId: ev.externalId,
+    from: ev.from,
+    text: ev.text,
+    conversationId: ev.conversationId,
   }, tenantId);
 }
 
-async function recordAgentMessage(msg: { externalId: string; to: string; text: string }, tenantId: string): Promise<void> {
-  if (!msg.to || !msg.externalId) return;
-  const normalized = normalizeChannelValue('whatsapp', msg.to);
+/**
+ * Normalise a Kapso webhook body into the fields the handlers need.
+ *
+ * Kapso `payload_version: v2` delivers the event at the ROOT of the body
+ * ({ message, conversation, phone_number_id }); v1 wrapped it in `data`.
+ * Reading only `body.data` made every v2 event decode to an empty object, so
+ * `from` came out blank and handleInbound's `if (!msg.from) return` dropped the
+ * message without a log line — inbound replies and delivery receipts were
+ * silently discarded from the day the number moved to v2.
+ *
+ * Kept pure and exported so both shapes stay covered by unit tests: this is a
+ * decoding bug that produces no error and no log, so only a test can catch it.
+ */
+export function parseKapsoEvent(body: KapsoBody): {
+  origin: string;
+  direction: string;
+  externalId: string;
+  text: string;
+  from: string;
+  to: string;
+  conversationId: string | null;
+  status: string;
+} {
+  const data = (body.data ?? body) as Record<string, unknown>;
+  const message = (data.message ?? {}) as Record<string, unknown>;
+  const conversation = (data.conversation ?? {}) as Record<string, unknown>;
+  const kapsoMeta = (message.kapso ?? {}) as Record<string, unknown>;
+  const { origin, direction } = classifyEvent(data);
+
+  return {
+    origin,
+    direction,
+    // v2 nests these under `message`; v1 kept them flat on `data`.
+    externalId: String(message.id ?? data.message_id ?? data.id ?? ''),
+    text: String(
+      (message.text as Record<string, string> | undefined)?.body
+        ?? kapsoMeta.content
+        ?? (data.text as Record<string, string> | undefined)?.body
+        ?? data.body
+        ?? data.content
+        ?? '',
+    ),
+    from: String(message.from ?? data.from ?? conversation.phone_number ?? data.phone_number ?? ''),
+    to: String(message.to ?? data.to ?? conversation.phone_number ?? data.phone_number ?? ''),
+    conversationId: conversation.id
+      ? String(conversation.id)
+      : (data.conversation_id ? String(data.conversation_id) : null),
+    status: String(data.status ?? kapsoMeta.status ?? ''),
+  };
+}
+
+/**
+ * Find a contact by WhatsApp number, tolerating how the number was stored.
+ *
+ * contact_channels holds three shapes in practice: the canonical digits-only
+ * `91XXXXXXXXXX`, `+91XXXXXXXXXX` with the plus retained (the large majority),
+ * and a few saved with no country code at all — the normaliser reads a leading
+ * "91" in a 10-digit mobile as a country code that is already there, so those
+ * numbers keep their national form. An exact match against the normalised
+ * value therefore missed almost every contact, and a reply from a known lead
+ * was logged as "unknown number" and dropped.
+ *
+ * Matching on the trailing 10 digits covers all three shapes. Two Indian
+ * mobiles cannot share a 10-digit subscriber number, and the tenant filter
+ * bounds the comparison further, so this cannot mis-attribute a message.
+ */
+async function findWhatsAppChannel(rawNumber: string, tenantId: string) {
+  const digits = rawNumber.replace(/[^0-9]/g, '');
+  if (digits.length < 10) return undefined;
+  const last10 = digits.slice(-10);
 
   const [channel] = await db
     .select({ contactId: contactChannels.contactId, tenantId: contactChannels.tenantId })
@@ -182,10 +239,24 @@ async function recordAgentMessage(msg: { externalId: string; to: string; text: s
     .where(and(
       eq(contactChannels.tenantId, tenantId),
       eq(contactChannels.channelType, 'whatsapp'),
-      eq(contactChannels.channelValue, normalized),
+      sql`right(regexp_replace(${contactChannels.channelValue}, '[^0-9]', '', 'g'), 10) = ${last10}`,
     ))
     .limit(1);
-  if (!channel) return;
+
+  return channel;
+}
+
+async function recordAgentMessage(msg: { externalId: string; to: string; text: string }, tenantId: string): Promise<void> {
+  if (!msg.to || !msg.externalId) {
+    logger.info('[kapso-webhook] business_app echo missing recipient or id; skipped');
+    return;
+  }
+
+  const channel = await findWhatsAppChannel(msg.to, tenantId);
+  if (!channel) {
+    logger.info(`[kapso-webhook] business_app echo to unknown number ${redactPhone(msg.to)}`);
+    return;
+  }
 
   await db
     .insert(messages)
@@ -283,19 +354,15 @@ async function handleInbound(msg: {
   text: string;
   conversationId: string | null;
 }, tenantId: string): Promise<void> {
-  if (!msg.from) return;
+  if (!msg.from) {
+    // Never return from here silently: an unparsed payload shape looks
+    // identical to "no traffic" from the outside, which is how v2 events went
+    // unnoticed for two months while the endpoint answered 200 to every POST.
+    logger.warn('[kapso-webhook] inbound event carried no sender number; payload shape unrecognised');
+    return;
+  }
 
-  const normalized = normalizeChannelValue('whatsapp', msg.from);
-
-  const [channel] = await db
-    .select({ contactId: contactChannels.contactId, tenantId: contactChannels.tenantId })
-    .from(contactChannels)
-    .where(and(
-      eq(contactChannels.tenantId, tenantId),
-      eq(contactChannels.channelType, 'whatsapp'),
-      eq(contactChannels.channelValue, normalized),
-    ))
-    .limit(1);
+  const channel = await findWhatsAppChannel(msg.from, tenantId);
 
   if (!channel) {
     logger.info(`[kapso-webhook] inbound from unknown number ${redactPhone(msg.from)}`);
