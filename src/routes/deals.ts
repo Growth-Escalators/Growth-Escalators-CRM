@@ -615,6 +615,46 @@ router.post('/add-or-update', requirePerm('deals.bulk'), async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
+// GET /deals/pipeline-summary — dashboard totals by stage
+// Keep this static route ahead of /:id so Express never treats
+// "pipeline-summary" as a deal UUID.
+// ---------------------------------------------------------------------------
+router.get('/pipeline-summary', requirePerm('deals.view'), async (req, res) => {
+  const tenantId = req.user!.tenantId;
+  try {
+    const result = await pool.query<{
+      stage: string | null;
+      count: number | string;
+      total_value: number | string | null;
+    }>(`
+      SELECT
+        COALESCE(NULLIF(stage, ''), 'Unspecified') AS stage,
+        COUNT(*)::int AS count,
+        COALESCE(SUM(deal_value), 0)::float8 AS total_value
+      FROM deals
+      WHERE tenant_id = $1
+        AND (metadata->>'archived') IS DISTINCT FROM 'true'
+      GROUP BY COALESCE(NULLIF(stage, ''), 'Unspecified')
+      ORDER BY stage
+    `, [tenantId]);
+
+    const stages = result.rows.map((row) => ({
+      stage: row.stage || 'Unspecified',
+      count: Number(row.count || 0),
+      totalValue: Number(row.total_value || 0),
+    }));
+
+    res.json({
+      totalValue: stages.reduce((sum, stage) => sum + stage.totalValue, 0),
+      stages,
+    });
+  } catch (e) {
+    logger.error('[deals] GET /pipeline-summary error:', e);
+    res.status(500).json({ error: 'internal server error' });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // GET /deals/export — CSV export of all deals
 // ---------------------------------------------------------------------------
 router.get('/export', requirePerm('deals.export'), async (req, res) => {

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-// src/routes/deals.ts's 10 routes were each wired with requirePerm(...)
+// src/routes/deals.ts's routes are each wired with requirePerm(...)
 // (this PR) — every route now requires one of the 5 deals.* registry keys
 // (src/config/permissions.ts) before its real handler runs. Same coverage
 // shape as contactsPermissionGating.test.ts — see that file's header for
@@ -52,6 +52,7 @@ const ROUTES: RouteCase[] = [
   { path: '/bulk-create', method: 'post', perm: 'deals.bulk' },
   { path: '/bulk-update', method: 'post', perm: 'deals.bulk' },
   { path: '/add-or-update', method: 'post', perm: 'deals.bulk' },
+  { path: '/pipeline-summary', method: 'get', perm: 'deals.view' },
   { path: '/export', method: 'get', perm: 'deals.export' },
   { path: '/:id', method: 'get', perm: 'deals.view' },
   { path: '/:id/activities', method: 'get', perm: 'deals.view' },

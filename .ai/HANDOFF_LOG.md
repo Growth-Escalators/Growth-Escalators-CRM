@@ -5731,3 +5731,24 @@ table) and `src/db/migrations/` (new `0052`, one `prevId` field on
 `0047_snapshot.json`, journal entry). A Bash write into `migrations/meta/` was
 correctly refused by the guarded-path classifier; done through reviewable file
 edits instead.
+
+---
+
+## 2026-09-02 — Production E2E found missing deals pipeline-summary route (Codex)
+
+Production Railway logs on deployment `3d79ce52-9e51-4593-9197-60f7ee12f000`
+showed `GET /deals/:id` failing with PostgreSQL `22P02` about every 90 seconds.
+The CRM Dashboard polls `/api/deals/pipeline-summary` on that interval, but the
+route did not exist, so Express passed `pipeline-summary` to the generic UUID
+handler.
+
+Branch `fix/production-attribution-e2e-2026-09-02` adds the missing
+tenant-scoped, archived-deal-filtered summary route before `/:id`. Regression
+tests cover the response shape, tenant binding, permission gate, and route
+ordering. No schema, migration, environment, production data, Google Ads, Meta
+outcome, or unrelated system was changed.
+
+Verification: backend TypeScript build passed; admin production build passed;
+full Vitest suite passed (245 files / 3326 tests); tenant-scoping lint reported
+zero new findings; targeted regression suite passed (47 tests); diff check
+passed.
