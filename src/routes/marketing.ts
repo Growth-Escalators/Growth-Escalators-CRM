@@ -44,6 +44,76 @@ router.get('/accounts', requirePermission('MARKETING_VIEW'), async (req: Request
 });
 
 // ---------------------------------------------------------------------------
+// GET /api/marketing/website-seo-pages
+// Latest Search Console page snapshot for Growth Escalators' own website.
+//
+// seo_page_metrics stores a trailing 28-day snapshot on every GSC pull. Those
+// snapshots overlap, so this endpoint deliberately takes the latest row PER
+// URL instead of summing snapshots. The commercial half of the join remains
+// /api/analytics/website-attribution; the admin UI merges them by normalized
+// path so Search performance can sit beside leads / qualified / won / cash.
+// ---------------------------------------------------------------------------
+router.get('/website-seo-pages', requirePermission('REPORTS_VIEW'), async (req: Request, res: Response) => {
+  const tenantId = req.user!.tenantId;
+  try {
+    const result = await pool.query<{
+      page_url: string;
+      recorded_date: string | Date;
+      clicks: number | string | null;
+      impressions: number | string | null;
+      avg_position: number | string | null;
+      avg_ctr: number | string | null;
+    }>(`
+      SELECT DISTINCT ON (spm.page_url)
+        spm.page_url,
+        spm.recorded_date,
+        spm.clicks,
+        spm.impressions,
+        spm.avg_position,
+        spm.avg_ctr
+      FROM seo_page_metrics spm
+      JOIN seo_sites s
+        ON s.id = spm.site_id
+       AND s.tenant_id = spm.tenant_id
+      WHERE spm.tenant_id = $1
+        AND LOWER(
+          RTRIM(
+            REGEXP_REPLACE(
+              REGEXP_REPLACE(s.domain, '^https?://', '', 'i'),
+              '^www\\.', '', 'i'
+            ),
+            '/'
+          )
+        ) = 'growthescalators.com'
+      ORDER BY spm.page_url, spm.recorded_date DESC
+    `, [tenantId]);
+
+    const pages = result.rows.map((row) => ({
+      pageUrl: row.page_url,
+      snapshotDate: row.recorded_date,
+      clicks: Number(row.clicks) || 0,
+      impressions: Number(row.impressions) || 0,
+      avgPosition: row.avg_position == null ? null : Number(row.avg_position),
+      avgCtr: row.avg_ctr == null ? null : Number(row.avg_ctr),
+    }));
+
+    const snapshotDate = pages.reduce<string | null>((latest, page) => {
+      const value = page.snapshotDate ? new Date(page.snapshotDate).toISOString().slice(0, 10) : null;
+      if (!value) return latest;
+      return !latest || value > latest ? value : latest;
+    }, null);
+
+    res.json({
+      windowDays: 28,
+      snapshotDate,
+      pages,
+    });
+  } catch (e: unknown) {
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // PATCH /api/marketing/accounts/:id/notify-slack — flip the Slack-daily-report
 // inclusion flag. Active = sends daily report, Paused = skipped.
 // ---------------------------------------------------------------------------
