@@ -20,6 +20,19 @@ function formatPaise(value) {
   return formatRupees(Number(value || 0) / 100);
 }
 
+function normalizePath(value) {
+  const raw = String(value || '').trim();
+  if (!raw || raw === 'unknown') return raw;
+  try {
+    const url = /^https?:\/\//i.test(raw) ? new URL(raw) : new URL(raw, 'https://growthescalators.com');
+    const path = url.pathname || '/';
+    return path === '/' ? '/' : path.replace(/\/+$/, '') || '/';
+  } catch {
+    const path = raw.split(/[?#]/)[0] || '/';
+    return path === '/' ? '/' : path.replace(/\/+$/, '') || '/';
+  }
+}
+
 function Stat({ label, value, hint }) {
   return (
     <div className="rounded-xl border border-slate-200 bg-white p-3">
@@ -39,6 +52,7 @@ export default function WebsiteAttributionAnalytics({
 }) {
   const [view, setView] = useState('firstSources');
   const [data, setData] = useState(null);
+  const [seoData, setSeoData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -54,20 +68,47 @@ export default function WebsiteAttributionAnalytics({
     if (!query) {
       setLoading(false);
       setData(null);
+      setSeoData(null);
       return;
     }
     let cancelled = false;
     setLoading(true);
     setError('');
-    apiFetch(`/api/analytics/website-attribution?${query}`)
-      .then((payload) => { if (!cancelled) setData(payload); })
+    Promise.all([
+      apiFetch(`/api/analytics/website-attribution?${query}`),
+      // Search Console is supplemental context. If it has not been configured
+      // or the latest pull failed, commercial attribution must still render.
+      apiFetch('/api/marketing/website-seo-pages').catch(() => null),
+    ])
+      .then(([payload, seoPayload]) => {
+        if (cancelled) return;
+        setData(payload);
+        setSeoData(seoPayload);
+      })
       .catch((err) => { if (!cancelled) setError(err?.message || 'Failed to load website attribution'); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [query]);
 
-  const rows = data?.[view] || [];
+  const seoByPath = useMemo(() => {
+    const map = new Map();
+    for (const page of seoData?.pages || []) {
+      const path = normalizePath(page.pageUrl);
+      if (path) map.set(path, page);
+    }
+    return map;
+  }, [seoData]);
+
+  const rows = useMemo(() => {
+    const baseRows = data?.[view] || [];
+    if (view !== 'firstLandingPages') return baseRows;
+    return baseRows.map((row) => ({
+      ...row,
+      gsc: seoByPath.get(normalizePath(row.label)) || null,
+    }));
+  }, [data, view, seoByPath]);
   const totals = data?.totals || {};
+  const showGsc = view === 'firstLandingPages';
 
   return (
     <section className="space-y-3">
@@ -105,21 +146,28 @@ export default function WebsiteAttributionAnalytics({
           </div>
 
           <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
-            <div className="flex items-center gap-1 border-b border-slate-100 bg-slate-50 p-2 overflow-x-auto">
-              {VIEWS.map((item) => (
-                <button
-                  key={item.id}
-                  type="button"
-                  onClick={() => setView(item.id)}
-                  className={`shrink-0 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
-                    view === item.id
-                      ? 'bg-white text-slate-900 shadow-sm'
-                      : 'text-slate-500 hover:text-slate-700'
-                  }`}
-                >
-                  {item.label}
-                </button>
-              ))}
+            <div className="flex items-center justify-between gap-3 border-b border-slate-100 bg-slate-50 p-2 flex-wrap">
+              <div className="flex items-center gap-1 overflow-x-auto">
+                {VIEWS.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => setView(item.id)}
+                    className={`shrink-0 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+                      view === item.id
+                        ? 'bg-white text-slate-900 shadow-sm'
+                        : 'text-slate-500 hover:text-slate-700'
+                    }`}
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+              {showGsc && seoData?.snapshotDate && (
+                <span className="px-2 text-[11px] text-slate-400">
+                  GSC columns: latest {Number(seoData.windowDays || 28)}d snapshot ending {seoData.snapshotDate}
+                </span>
+              )}
             </div>
 
             {rows.length === 0 ? (
@@ -130,6 +178,10 @@ export default function WebsiteAttributionAnalytics({
                   <thead>
                     <tr className="border-b border-slate-100">
                       <th className="px-4 py-2 text-xs font-semibold text-slate-500">{VIEWS.find((item) => item.id === view)?.label}</th>
+                      {showGsc && <th className="px-4 py-2 text-xs font-semibold text-slate-500 text-right">GSC impressions</th>}
+                      {showGsc && <th className="px-4 py-2 text-xs font-semibold text-slate-500 text-right">GSC clicks</th>}
+                      {showGsc && <th className="px-4 py-2 text-xs font-semibold text-slate-500 text-right">GSC CTR</th>}
+                      {showGsc && <th className="px-4 py-2 text-xs font-semibold text-slate-500 text-right">Avg position</th>}
                       <th className="px-4 py-2 text-xs font-semibold text-slate-500 text-right">Leads</th>
                       <th className="px-4 py-2 text-xs font-semibold text-slate-500 text-right">Reviewed</th>
                       <th className="px-4 py-2 text-xs font-semibold text-slate-500 text-right">Good + Hot</th>
@@ -142,6 +194,10 @@ export default function WebsiteAttributionAnalytics({
                     {rows.slice(0, 15).map((row) => (
                       <tr key={row.label} className="border-b border-slate-50 hover:bg-slate-50">
                         <td className="max-w-[360px] px-4 py-2 text-sm font-medium text-slate-800 break-all">{row.label}</td>
+                        {showGsc && <td className="px-4 py-2 text-sm text-slate-600 text-right">{row.gsc ? Number(row.gsc.impressions || 0).toLocaleString('en-IN') : '—'}</td>}
+                        {showGsc && <td className="px-4 py-2 text-sm text-slate-600 text-right">{row.gsc ? Number(row.gsc.clicks || 0).toLocaleString('en-IN') : '—'}</td>}
+                        {showGsc && <td className="px-4 py-2 text-sm text-slate-600 text-right">{row.gsc?.avgCtr == null ? '—' : `${(Number(row.gsc.avgCtr) * 100).toFixed(1)}%`}</td>}
+                        {showGsc && <td className="px-4 py-2 text-sm text-slate-600 text-right">{row.gsc?.avgPosition == null ? '—' : Number(row.gsc.avgPosition).toFixed(1)}</td>}
                         <td className="px-4 py-2 text-sm text-slate-700 text-right">{Number(row.leads || 0).toLocaleString('en-IN')}</td>
                         <td className="px-4 py-2 text-sm text-slate-700 text-right">{Number(row.reviewed || 0).toLocaleString('en-IN')}</td>
                         <td className="px-4 py-2 text-sm font-semibold text-sky-700 text-right">{Number(row.qualified || 0).toLocaleString('en-IN')}</td>
