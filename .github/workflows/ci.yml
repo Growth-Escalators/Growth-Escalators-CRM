@@ -31,6 +31,11 @@ jobs:
       - name: Build (tsc)
         run: npm run build
 
+      # The root TypeScript build does not compile the React admin SPA. Build it
+      # explicitly so JSX/runtime-import mistakes on CRM pages cannot pass CI.
+      - name: Build admin (Vite)
+        run: npm run admin:build
+
       - name: Tenant-scoping lint (cross-tenant IDOR guard)
         run: npm run lint:tenant-scoping
 
