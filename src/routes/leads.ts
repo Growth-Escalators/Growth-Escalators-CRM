@@ -441,11 +441,20 @@ router.post('/website', async (req: Request, res: Response): Promise<void> => {
     const tagsWithoutPriority = priorityTag
       ? existingTags.filter((t) => t !== 'p1' && t !== 'p2')
       : existingTags;
+    /**
+     * Priority goes FIRST in the array, not last.
+     *
+     * The contacts list renders only the first two tags and collapses the rest
+     * into a "+N" counter, so a p1 appended at the end is invisible in exactly
+     * the view a salesperson scans to decide who to call. Order is the whole
+     * fix — the tag was already being stored correctly.
+     */
     const newTags = [...new Set([
+      ...(priorityTag ? [priorityTag] : []),
       ...tagsWithoutPriority,
       'website_lead',
       ...(verticalTag ? [verticalTag] : []),
-      ...(priorityTag ? [priorityTag, 'growth_tool_lead'] : []),
+      ...(priorityTag ? ['growth_tool_lead'] : []),
     ])];
     const priorCount = Number(existingMetadata.websiteLeadCount || 0);
     const now = new Date();
@@ -484,7 +493,10 @@ router.post('/website', async (req: Request, res: Response): Promise<void> => {
       await ensureContactInMasterSalesPipeline({
         tenantId: tenant.id,
         contactId: contact.id,
-        title: `${company || name} — ${service || businessVertical || 'Website enquiry'}`,
+        // displayName, not the raw name: a Growth Tool lead posts the literal
+        // "Growth tool user", which put an unrecognisable card on the sales
+        // board while the contact beside it was correctly named by email.
+        title: `${company || displayName} — ${service || businessVertical || 'Website enquiry'}`,
         assignedTo,
         service: service || null,
         businessVertical,
