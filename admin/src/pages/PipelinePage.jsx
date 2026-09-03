@@ -1,174 +1,253 @@
-import React, { useEffect, useState, useCallback, useRef } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
-import { Settings, Archive, X } from 'lucide-react';
+import { DragDropContext, Draggable, Droppable } from '@hello-pangea/dnd';
+import {
+  Archive,
+  BarChart3,
+  ChevronLeft,
+  ChevronRight,
+  LayoutGrid,
+  List,
+  Plus,
+  RotateCcw,
+  Save,
+  Search,
+  Settings,
+  Trash2,
+  X,
+} from 'lucide-react';
 import Sidebar from '../components/Sidebar.jsx';
 import ContactSlideIn from '../components/ContactSlideIn.jsx';
 import DealDrawer from '../components/DealDrawer.jsx';
+import ConfirmDialog from '../components/ConfirmDialog.jsx';
+import { useToast } from '../components/wizmatch/Toast.jsx';
 import { apiFetch } from '../lib/api.js';
 import { productPath } from '../lib/auth.js';
-import { isAbandonedOutcome, isLostOutcome, isTerminalOutcome, isWonOutcome } from '../lib/pipelineStageOutcomes.js';
+import { isLostOutcome, isTerminalOutcome, isWonOutcome } from '../lib/pipelineStageOutcomes.js';
 import { safeInitial, safeLower, safeText } from '../lib/safe.js';
-import { useToast } from '../components/wizmatch/Toast.jsx';
-import ConfirmDialog from '../components/ConfirmDialog.jsx';
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-function getStageStyle(stageName, index, stageOutcome = 'open') {
-  // Named-stage colors per design spec — matched by substring so custom
-  // pipelines (Pipeline Manager lets users rename/add stages) still fall
-  // back sensibly to the generic palette below.
-  if (stageOutcome === 'won') return { color: '#22c55e', light: 'bg-success-500/10 border-success-500/20' };
-  if (stageOutcome === 'lost') return { color: '#dc2626', light: 'bg-danger-500/10 border-danger-500/20' };
-  if (stageOutcome === 'abandoned') return { color: '#f59e0b', light: 'bg-warning-500/10 border-warning-500/20' };
-
-  const lc = safeLower(stageName);
-  if (lc.includes('proposal')) return { color: '#f97316', light: 'bg-accent-50 border-accent-200' };
-  if (lc.includes('discovery')) return { color: '#1d4ed8', light: 'bg-primary-50 border-primary-200' };
-  if (lc.includes('qualified')) return { color: '#3b82f6', light: 'bg-primary-50 border-primary-200' };
-  if (lc.includes('new') || lc.includes('lead')) return { color: '#94a3b8', light: 'bg-neutral-50 border-neutral-200' };
-
-  const PALETTE = [
-    { color: '#64748b', light: 'bg-neutral-50 border-neutral-200' },
-    { color: '#3b82f6', light: 'bg-primary-50 border-primary-200' },
-    { color: '#1d4ed8', light: 'bg-primary-50 border-primary-200' },
-    { color: '#f97316', light: 'bg-accent-50 border-accent-200' },
-    { color: '#22c55e', light: 'bg-success-500/10 border-success-500/20' },
-  ];
-  return PALETTE[index % PALETTE.length];
-}
+const TRASH_RETENTION_DAYS = 60;
+const SAVED_VIEW_KEY = 'ge-crm:pipeline-saved-views:v1';
+const ASSIGNEE_COLORS = { jatin: '#F97316', saksham: '#3B82F6' };
 
 function daysAgo(dateStr) {
   if (!dateStr) return 0;
-  return Math.floor((Date.now() - new Date(dateStr)) / 86400000);
+  return Math.max(0, Math.floor((Date.now() - new Date(dateStr).getTime()) / 86400000));
 }
 
-function fmtInr(val) {
-  if (!val || val <= 0) return null;
+function trashDaysRemaining(dateStr) {
+  if (!dateStr) return TRASH_RETENTION_DAYS;
+  return Math.max(0, TRASH_RETENTION_DAYS - daysAgo(dateStr));
+}
+
+function isTrashRestoreExpired(dateStr) {
+  return Boolean(dateStr) && daysAgo(dateStr) >= TRASH_RETENTION_DAYS;
+}
+
+function fmtInr(value) {
+  const val = Number(value || 0);
+  if (val <= 0) return null;
+  if (val >= 10000000) return `₹${(val / 10000000).toFixed(1)}Cr`;
   if (val >= 100000) return `₹${(val / 100000).toFixed(1)}L`;
-  return `₹${Number(val).toLocaleString('en-IN')}`;
+  return `₹${val.toLocaleString('en-IN')}`;
 }
 
 function stringToColor(str = '') {
   str = safeText(str);
   let hash = 0;
-  for (let i = 0; i < str.length; i++) hash = str.charCodeAt(i) + ((hash << 5) - hash);
+  for (let i = 0; i < str.length; i += 1) hash = str.charCodeAt(i) + ((hash << 5) - hash);
   const colors = ['#3B82F6', '#8B5CF6', '#EC4899', '#F59E0B', '#10B981', '#EF4444', '#6366F1', '#14B8A6'];
   return colors[Math.abs(hash) % colors.length];
 }
 
-const ASSIGNEE_COLORS = { jatin: '#F97316', saksham: '#3B82F6' };
+function getStageStyle(stageName, index, stageOutcome = 'open') {
+  if (stageOutcome === 'won') return { color: '#22c55e', light: 'bg-success-500/10 border-success-500/20' };
+  if (stageOutcome === 'lost') return { color: '#dc2626', light: 'bg-danger-500/10 border-danger-500/20' };
+  if (stageOutcome === 'abandoned') return { color: '#f59e0b', light: 'bg-warning-500/10 border-warning-500/20' };
+  const lc = safeLower(stageName);
+  if (lc.includes('proposal')) return { color: '#f97316', light: 'bg-accent-50 border-accent-200' };
+  if (lc.includes('qualified')) return { color: '#14b8a6', light: 'bg-success-500/10 border-success-500/20' };
+  if (lc.includes('meeting')) return { color: '#8b5cf6', light: 'bg-primary-50 border-primary-200' };
+  if (lc.includes('follow')) return { color: '#6366f1', light: 'bg-primary-50 border-primary-200' };
+  if (lc.includes('contact')) return { color: '#3b82f6', light: 'bg-primary-50 border-primary-200' };
+  if (lc.includes('new') || lc.includes('lead')) return { color: '#94a3b8', light: 'bg-neutral-50 border-neutral-200' };
+  const palette = [
+    { color: '#64748b', light: 'bg-neutral-50 border-neutral-200' },
+    { color: '#3b82f6', light: 'bg-primary-50 border-primary-200' },
+    { color: '#6366f1', light: 'bg-primary-50 border-primary-200' },
+    { color: '#14b8a6', light: 'bg-success-500/10 border-success-500/20' },
+    { color: '#f97316', light: 'bg-accent-50 border-accent-200' },
+  ];
+  return palette[index % palette.length];
+}
 
-// ---------------------------------------------------------------------------
-// DealCard
-// ---------------------------------------------------------------------------
-function DealCard({ deal, index, onClick, onArchive, onUnarchive, selected = false, onToggleSelect, selectionMode = false }) {
-  const days = daysAgo(deal.updatedAt || deal.createdAt);
-  const isArchived = deal.metadata?.archived === true;
-  const assignedTo = safeText(deal.assignedTo);
+function isDeleted(deal) {
+  return Boolean(deal?.metadata?.deletedAt);
+}
+
+function isArchivedOnly(deal) {
+  return deal?.metadata?.archived === true && !isDeleted(deal);
+}
+
+function inScope(deal, scope) {
+  if (scope === 'trash') return isDeleted(deal);
+  if (scope === 'archived') return isArchivedOnly(deal);
+  return deal?.metadata?.archived !== true && !isDeleted(deal);
+}
+
+function stripTrashMetadata(metadata = {}) {
+  const next = { ...metadata };
+  delete next.deletedAt;
+  delete next.purgeAfter;
+  delete next.preDeleteArchived;
+  return next;
+}
+
+function makeTrashMetadata(metadata = {}) {
+  const deletedAt = new Date();
+  const purgeAfter = new Date(deletedAt.getTime() + TRASH_RETENTION_DAYS * 86400000);
+  return {
+    ...metadata,
+    preDeleteArchived: metadata.archived === true,
+    archived: true,
+    deletedAt: deletedAt.toISOString(),
+    purgeAfter: purgeAfter.toISOString(),
+  };
+}
+
+function matchesFilters(deal, filters) {
+  const query = safeLower(filters.search).trim();
+  if (query) {
+    const haystack = safeLower([
+      deal.contactName,
+      deal.companyName,
+      deal.title,
+      deal.source,
+      deal.assignedTo,
+      deal.stage,
+      ...(Array.isArray(deal.tags) ? deal.tags : []),
+    ].filter(Boolean).join(' '));
+    if (!haystack.includes(query)) return false;
+  }
+  if (filters.owner) {
+    if (filters.owner === 'unassigned' && deal.assignedTo) return false;
+    if (filters.owner !== 'unassigned' && safeLower(deal.assignedTo) !== filters.owner) return false;
+  }
+  if (filters.stage && deal.stage !== filters.stage) return false;
+  if (filters.source && safeLower(deal.source) !== safeLower(filters.source)) return false;
+  if (filters.value) {
+    const value = Number(deal.dealValue || 0);
+    if (filters.value === 'high' && value < 1000000) return false;
+    if (filters.value === 'medium' && (value < 100000 || value >= 1000000)) return false;
+    if (filters.value === 'low' && value >= 100000) return false;
+  }
+  if (filters.age) {
+    const age = daysAgo(deal.updatedAt || deal.createdAt);
+    if (filters.age === 'stale' && age < 3) return false;
+    if (filters.age === 'week' && age > 7) return false;
+    if (filters.age === 'today' && age > 0) return false;
+  }
+  return true;
+}
+
+function DealCard({ deal, index, stageLabel, selectionMode, selected, scope, onToggleSelect, onOpen, onArchive, onDelete, onRestore }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef(null);
-
-  useEffect(() => {
-    if (!menuOpen) return;
-    function h(e) { if (menuRef.current && !menuRef.current.contains(e.target)) setMenuOpen(false); }
-    document.addEventListener('mousedown', h);
-    return () => document.removeEventListener('mousedown', h);
-  }, [menuOpen]);
-
+  const days = daysAgo(deal.updatedAt || deal.createdAt);
+  const assignedTo = safeText(deal.assignedTo);
+  const restoreExpired = scope === 'trash' && isTrashRestoreExpired(deal.metadata?.deletedAt);
   const scoreColor = deal.score >= 70
     ? 'bg-success-500/10 text-success-700'
     : deal.score >= 40
-    ? 'bg-warning-500/10 text-warning-700'
-    : deal.score > 0
-    ? 'bg-danger-500/10 text-danger-600'
-    : 'bg-neutral-100 text-neutral-500';
+      ? 'bg-warning-500/10 text-warning-700'
+      : deal.score > 0
+        ? 'bg-danger-500/10 text-danger-600'
+        : 'bg-neutral-100 text-neutral-500';
+
+  useEffect(() => {
+    if (!menuOpen) return undefined;
+    const close = (event) => {
+      if (menuRef.current && !menuRef.current.contains(event.target)) setMenuOpen(false);
+    };
+    document.addEventListener('mousedown', close);
+    return () => document.removeEventListener('mousedown', close);
+  }, [menuOpen]);
 
   return (
-    <Draggable draggableId={deal.id} index={index}>
+    <Draggable draggableId={deal.id} index={index} isDragDisabled={selectionMode || scope !== 'active'}>
       {(provided, snapshot) => (
         <div
           ref={provided.innerRef}
           {...provided.draggableProps}
           {...provided.dragHandleProps}
-          onClick={(e) => {
-            // In selection mode, clicks toggle selection instead of opening detail.
-            if (selectionMode && onToggleSelect) { onToggleSelect(); return; }
-            onClick?.(e);
+          onClick={() => {
+            if (selectionMode) onToggleSelect();
+            else onOpen();
           }}
-          className={`bg-white rounded-xl border p-3 shadow-sm hover:shadow-md cursor-pointer transition-all relative select-none ${selected ? 'border-primary-400 ring-2 ring-primary-200' : 'border-neutral-200'} ${snapshot.isDragging ? 'shadow-xl rotate-1 scale-105' : ''} ${isArchived ? 'opacity-60' : ''}`}
-          style={{ width: 220, ...provided.draggableProps.style }}
+          className={`w-full rounded-xl border bg-white p-3 shadow-sm transition-all ${
+            selected ? 'border-primary-400 ring-2 ring-primary-200' : 'border-neutral-200 hover:border-neutral-300 hover:shadow-md'
+          } ${snapshot.isDragging ? 'rotate-1 scale-[1.02] shadow-xl' : ''} ${scope !== 'active' ? 'opacity-85' : ''}`}
         >
-          {/* Row 1: name + days + menu */}
-          <div className="flex items-start justify-between gap-1 mb-0.5">
-            {onToggleSelect && (
-              <input
-                type="checkbox"
-                checked={selected}
-                onClick={(e) => e.stopPropagation()}
-                onChange={(e) => { e.stopPropagation(); onToggleSelect(); }}
-                className="mt-0.5 mr-1 rounded border-neutral-300 text-primary-500 focus:ring-primary-400 cursor-pointer"
-                aria-label="Select deal"
-              />
-            )}
-            <p className="text-sm font-bold text-neutral-900 leading-tight line-clamp-1 flex-1">
-              {deal.contactName ?? 'Unknown'}
-            </p>
-            <div className="flex items-center gap-1 shrink-0">
-              {deal.score > 0 && (
-                <span className={`text-[10px] px-1.5 py-0.5 rounded font-semibold ${scoreColor}`}>
-                  {deal.score}
-                </span>
-              )}
-              <div ref={menuRef} className="relative" onClick={(e) => e.stopPropagation()}>
-                <button
-                  onClick={(e) => { e.stopPropagation(); setMenuOpen(!menuOpen); }}
-                  className="text-neutral-300 hover:text-neutral-500 p-0.5 rounded"
-                  aria-label={`Actions for deal ${deal.contactName ?? 'Unknown'}`}
-                >
-                  <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24">
-                    <path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/>
-                  </svg>
-                </button>
-                {menuOpen && (
-                  <div className="absolute top-5 right-0 z-20 bg-white border border-neutral-200 rounded-xl shadow-lg py-1 min-w-[130px]" onClick={(e) => e.stopPropagation()}>
-                    {isArchived ? (
-                      <button onClick={() => { onUnarchive(); setMenuOpen(false); }} className="w-full text-left px-3 py-2 text-sm text-neutral-700 hover:bg-neutral-50">Unarchive</button>
-                    ) : (
-                      <button onClick={() => { onArchive(); setMenuOpen(false); }} className="w-full text-left px-3 py-2 text-sm text-danger-600 hover:bg-danger-500/10">Archive</button>
+          <div className="flex items-start gap-2">
+            <input
+              type="checkbox"
+              checked={selected}
+              onClick={(event) => event.stopPropagation()}
+              onChange={(event) => { event.stopPropagation(); onToggleSelect(); }}
+              className="mt-0.5 rounded border-neutral-300 text-primary-500 focus:ring-primary-400"
+              aria-label={`Select ${deal.contactName || 'deal'}`}
+            />
+            <div className="min-w-0 flex-1">
+              <div className="flex items-start justify-between gap-2">
+                <p className="truncate text-sm font-bold leading-tight text-neutral-900">{deal.contactName || deal.title || 'Unknown'}</p>
+                <div className="flex shrink-0 items-center gap-1">
+                  {deal.score > 0 && <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${scoreColor}`}>{deal.score}</span>}
+                  <div ref={menuRef} className="relative" onClick={(event) => event.stopPropagation()}>
+                    <button
+                      type="button"
+                      onClick={() => setMenuOpen((value) => !value)}
+                      className="rounded p-0.5 text-neutral-300 hover:bg-neutral-100 hover:text-neutral-600"
+                      aria-label={`Actions for ${deal.contactName || 'deal'}`}
+                    >
+                      <span className="block px-1 text-lg leading-none">⋮</span>
+                    </button>
+                    {menuOpen && (
+                      <div className="absolute right-0 top-6 z-30 min-w-[180px] rounded-xl border border-neutral-200 bg-white py-1 shadow-xl">
+                        {scope === 'active' && (
+                          <>
+                            <button type="button" onClick={() => { onArchive(); setMenuOpen(false); }} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-neutral-700 hover:bg-neutral-50"><Archive className="h-4 w-4" /> Archive</button>
+                            <button type="button" onClick={() => { onDelete(); setMenuOpen(false); }} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-danger-600 hover:bg-danger-500/10"><Trash2 className="h-4 w-4" /> Move to Trash</button>
+                          </>
+                        )}
+                        {scope === 'archived' && (
+                          <>
+                            <button type="button" onClick={() => { onRestore(); setMenuOpen(false); }} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-neutral-700 hover:bg-neutral-50"><RotateCcw className="h-4 w-4" /> Unarchive</button>
+                            <button type="button" onClick={() => { onDelete(); setMenuOpen(false); }} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-danger-600 hover:bg-danger-500/10"><Trash2 className="h-4 w-4" /> Move to Trash</button>
+                          </>
+                        )}
+                        {scope === 'trash' && (
+                          <button type="button" onClick={() => { if (!restoreExpired) onRestore(); setMenuOpen(false); }} disabled={restoreExpired} className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-primary-700 hover:bg-primary-50 disabled:cursor-not-allowed disabled:text-neutral-400 disabled:hover:bg-transparent"><RotateCcw className="h-4 w-4" /> {restoreExpired ? 'Restore window expired' : 'Restore'}</button>
+                        )}
+                      </div>
                     )}
                   </div>
+                </div>
+              </div>
+              {deal.companyName && <p className="mt-1 truncate text-xs text-neutral-500">{deal.companyName}</p>}
+              {scope === 'trash' && <p className={`mt-2 flex items-center gap-1 text-[10px] font-medium ${restoreExpired ? 'text-neutral-500' : 'text-danger-600'}`}><Trash2 className="h-3 w-3" /> {restoreExpired ? 'Restore window expired' : `${trashDaysRemaining(deal.metadata?.deletedAt)}d left to restore`}</p>}
+              <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                {deal.source && <span className="rounded-md bg-neutral-100 px-1.5 py-0.5 text-[10px] font-medium text-neutral-600">{deal.source}</span>}
+                {fmtInr(deal.dealValue) && <span className="rounded-md bg-success-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-success-700">{fmtInr(deal.dealValue)}</span>}
+                {scope !== 'active' && <span className="rounded-md bg-neutral-100 px-1.5 py-0.5 text-[10px] text-neutral-600">{stageLabel}</span>}
+              </div>
+              <div className="mt-3 flex items-center justify-between">
+                <span className={`text-[10px] ${days >= 3 ? 'font-semibold text-danger-600' : 'text-neutral-500'}`}>{days}d since activity</span>
+                {assignedTo ? (
+                  <span className="flex h-6 w-6 items-center justify-center rounded-full text-[9px] font-bold uppercase text-white" style={{ background: ASSIGNEE_COLORS[safeLower(assignedTo)] || stringToColor(assignedTo) }} title={assignedTo}>{safeInitial(assignedTo)}</span>
+                ) : (
+                  <span className="flex h-6 w-6 items-center justify-center rounded-full bg-neutral-200 text-[9px] text-neutral-600" title="Unassigned">?</span>
                 )}
               </div>
-            </div>
-          </div>
-
-          {/* Company */}
-          {deal.companyName && (
-            <p className="text-xs text-neutral-500 mb-1.5 line-clamp-1">{deal.companyName}</p>
-          )}
-
-          {/* Bottom row */}
-          <div className="flex items-center justify-between mt-2">
-            <div className="flex items-center gap-1.5">
-              {fmtInr(deal.dealValue) && (
-                <span className="text-xs font-semibold text-success-700">{fmtInr(deal.dealValue)}</span>
-              )}
-            </div>
-            <div className="flex items-center gap-1">
-              <span className={`text-[10px] text-neutral-500 ${days > 3 ? 'text-danger-600' : ''}`}>{days}d</span>
-              {assignedTo ? (
-                <span
-                  className="w-5 h-5 rounded-full flex items-center justify-center text-white text-[9px] font-bold uppercase"
-                  style={{ background: ASSIGNEE_COLORS[safeLower(assignedTo)] ?? stringToColor(assignedTo) }}
-                  title={assignedTo}
-                >
-                  {safeInitial(assignedTo)}
-                </span>
-              ) : (
-                <span className="w-5 h-5 rounded-full bg-neutral-200 flex items-center justify-center text-neutral-600 text-[9px]">?</span>
-              )}
             </div>
           </div>
         </div>
@@ -177,113 +256,38 @@ function DealCard({ deal, index, onClick, onArchive, onUnarchive, selected = fal
   );
 }
 
-// ---------------------------------------------------------------------------
-// Won/Lost confirmation modal
-// ---------------------------------------------------------------------------
-const LOST_REASONS = [
-  'Price too high',
-  'Went with competitor',
-  'Not ready — bad timing',
-  'No budget',
-  'Wrong fit',
-  'Went unresponsive',
-  'Other',
-];
-
-function WonLostModal({ stageName, stageOutcome, contactName, onConfirm, onCancel }) {
-  const won = isWonOutcome(stageOutcome);
-  const abandoned = isAbandonedOutcome(stageOutcome);
-  const lost = isLostOutcome(stageOutcome);
-  const [lostReason, setLostReason] = useState('');
+function WonLostModal({ move, onConfirm, onCancel }) {
+  const won = isWonOutcome(move?.stageOutcome);
+  const lost = isLostOutcome(move?.stageOutcome);
+  const [reason, setReason] = useState('');
   const [notes, setNotes] = useState('');
-  const canConfirm = won || abandoned || !!lostReason;
-
-  const iconBg = won ? 'bg-success-500/10' : abandoned ? 'bg-warning-500/10' : 'bg-danger-500/10';
-  const icon = won ? (
-    <svg className="w-6 h-6 text-success-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
-    </svg>
-  ) : abandoned ? (
-    <svg className="w-6 h-6 text-warning-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
-    </svg>
-  ) : (
-    <svg className="w-6 h-6 text-danger-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z"/>
-    </svg>
-  );
-  const title = won ? 'Deal Won!' : abandoned ? 'Mark as Abandoned?' : 'Why was this deal lost?';
-  const btnClass = won ? 'bg-success-600 hover:bg-success-700' : abandoned ? 'bg-warning-500 hover:bg-warning-600' : 'bg-danger-600 hover:opacity-90';
-  const btnLabel = won ? 'Save & Confirm' : abandoned ? 'Mark Abandoned' : 'Mark as Lost';
-
+  const reasons = ['Price too high', 'Went with competitor', 'Bad timing', 'No budget', 'Wrong fit', 'Went unresponsive', 'Other'];
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
-        <div className="px-6 pt-6 pb-4">
-          <div className={`w-12 h-12 rounded-full flex items-center justify-center mb-4 ${iconBg}`}>
-            {icon}
-          </div>
-          <h2 className="text-lg font-bold text-neutral-900">{title}</h2>
-          <p className="text-sm text-neutral-500 mt-1">
-            {contactName} &rarr; <span className="font-medium text-neutral-700">{stageName}</span>
-          </p>
-
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm">
+      <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl">
+        <div className="p-6">
+          <h2 className="text-lg font-bold text-neutral-900">{won ? 'Deal won' : lost ? 'Mark deal as lost' : 'Confirm stage change'}</h2>
+          <p className="mt-1 text-sm text-neutral-500">{move?.deal?.contactName || 'Deal'} → {move?.toStageLabel}</p>
           {lost && (
             <div className="mt-4">
-              <label className="block text-sm font-medium text-neutral-700 mb-1.5">
-                Reason <span className="text-danger-600">*</span>
-              </label>
-              <select
-                value={lostReason}
-                onChange={(e) => setLostReason(e.target.value)}
-                className="w-full border border-neutral-200 rounded-lg px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-danger-500"
-                aria-label="Reason"
-              >
-                <option value="">Select a reason…</option>
-                {LOST_REASONS.map((r) => <option key={r} value={r}>{r}</option>)}
-              </select>
+              <label className="mb-1.5 block text-sm font-medium text-neutral-700">Reason <span className="text-danger-600">*</span></label>
+              <select value={reason} onChange={(event) => setReason(event.target.value)} className="w-full rounded-lg border border-neutral-200 bg-white px-3 py-2.5 text-sm" aria-label="Lost reason"><option value="">Choose a reason…</option>{reasons.map((item) => <option key={item} value={item}>{item}</option>)}</select>
             </div>
           )}
-
           <div className="mt-4">
-            <label className="block text-sm font-medium text-neutral-700 mb-1.5">
-              {won ? 'Notes about this win?' : 'Additional notes'} <span className="text-neutral-500 font-normal">(optional)</span>
-            </label>
-            <textarea
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              rows={3}
-              placeholder={won ? 'What made this deal happen?' : 'Any additional context…'}
-              className="w-full border border-neutral-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-neutral-300 resize-none"
-              aria-label={won ? 'Notes about this win' : 'Additional notes'}
-            />
+            <label className="mb-1.5 block text-sm font-medium text-neutral-700">Notes <span className="font-normal text-neutral-400">(optional)</span></label>
+            <textarea value={notes} onChange={(event) => setNotes(event.target.value)} rows={3} className="w-full resize-none rounded-lg border border-neutral-200 px-3 py-2.5 text-sm" aria-label="Stage change notes" />
           </div>
         </div>
-        <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-neutral-100 bg-neutral-50 rounded-b-2xl">
-          <button onClick={onCancel} className="px-4 py-2 text-sm font-medium text-neutral-600 hover:text-neutral-800 border border-neutral-200 rounded-lg hover:bg-white">
-            Cancel
-          </button>
-          {won && (
-            <button onClick={() => onConfirm(null, null)} className="px-4 py-2 text-sm font-medium text-neutral-600 border border-neutral-200 rounded-lg hover:bg-white">
-              Skip
-            </button>
-          )}
-          <button
-            onClick={() => onConfirm(lostReason || null, notes || null)}
-            disabled={!canConfirm}
-            className={`px-5 py-2 text-sm font-semibold text-white rounded-lg transition-colors disabled:opacity-50 ${btnClass}`}
-          >
-            {btnLabel}
-          </button>
+        <div className="flex justify-end gap-2 border-t border-neutral-100 bg-neutral-50 px-6 py-4">
+          <button type="button" onClick={onCancel} className="rounded-lg border border-neutral-200 px-4 py-2 text-sm text-neutral-700">Cancel</button>
+          <button type="button" disabled={lost && !reason} onClick={() => onConfirm(reason || null, notes || null)} className="rounded-lg bg-primary-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">Confirm</button>
         </div>
       </div>
     </div>
   );
 }
 
-// ---------------------------------------------------------------------------
-// Add Deal Modal
-// ---------------------------------------------------------------------------
 function AddDealModal({ pipelineId, stageName, onAdded, onClose }) {
   const [search, setSearch] = useState('');
   const [contacts, setContacts] = useState([]);
@@ -292,268 +296,130 @@ function AddDealModal({ pipelineId, stageName, onAdded, onClose }) {
   const [assignedTo, setAssignedTo] = useState('');
   const [source, setSource] = useState('');
   const [saving, setSaving] = useState(false);
-  const [searching, setSearching] = useState(false);
 
   useEffect(() => {
-    if (search.length < 2) { setContacts([]); return; }
-    setSearching(true);
-    const t = setTimeout(async () => {
-      const d = await apiFetch(`/api/contacts?search=${encodeURIComponent(search)}&limit=10`);
-      setContacts(d?.contacts ?? []);
-      setSearching(false);
-    }, 300);
-    return () => clearTimeout(t);
-  }, [search]);
+    if (selectedContact || search.trim().length < 2) { setContacts([]); return undefined; }
+    const timer = setTimeout(async () => {
+      const data = await apiFetch(`/api/contacts?search=${encodeURIComponent(search)}&limit=10`).catch(() => null);
+      setContacts(data?.contacts || []);
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [search, selectedContact]);
 
-  async function handleAdd() {
+  async function save() {
     if (!selectedContact) return;
     setSaving(true);
-    const result = await apiFetch('/api/deals/add-or-update', {
-      method: 'POST',
-      body: JSON.stringify({
-        contactId: selectedContact.id,
-        pipelineId,
-        stage: stageName,
-        title: `${selectedContact.firstName} ${selectedContact.lastName ?? ''} — opportunity`.trim(),
-        ...(dealValue ? { dealValue: parseInt(dealValue, 10) } : {}),
-        ...(assignedTo ? { assignedTo } : {}),
-        ...(source ? { source } : {}),
-      }),
-    });
-    setSaving(false);
-    if (result?.deal) onAdded(result.deal);
-    else onClose();
+    try {
+      const result = await apiFetch('/api/deals/add-or-update', {
+        method: 'POST',
+        body: JSON.stringify({
+          contactId: selectedContact.id,
+          pipelineId,
+          stage: stageName,
+          title: `${selectedContact.firstName || ''} ${selectedContact.lastName || ''} — opportunity`.trim(),
+          ...(dealValue ? { dealValue: Number(dealValue) } : {}),
+          ...(assignedTo ? { assignedTo } : {}),
+          ...(source ? { source } : {}),
+        }),
+      });
+      if (result?.deal) onAdded(result.deal); else onClose();
+    } finally { setSaving(false); }
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
-        <div className="flex items-center justify-between px-6 pt-6 pb-4 border-b border-neutral-100">
-          <div>
-            <h2 className="text-lg font-bold text-neutral-900">Add Deal</h2>
-            <p className="text-sm text-neutral-500 mt-0.5">Stage: <span className="font-medium text-neutral-600">{stageName}</span></p>
-          </div>
-          <button onClick={onClose} className="text-neutral-500 hover:text-neutral-600 p-1 rounded-lg hover:bg-neutral-100" aria-label="Close">
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg>
-          </button>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm">
+      <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl">
+        <div className="flex items-center justify-between border-b border-neutral-100 px-6 py-5">
+          <div><h2 className="text-lg font-bold text-neutral-900">Add Deal</h2><p className="mt-0.5 text-sm text-neutral-500">Stage: {stageName}</p></div>
+          <button type="button" onClick={onClose} className="rounded-lg p-1.5 text-neutral-500 hover:bg-neutral-100" aria-label="Close"><X className="h-5 w-5" /></button>
         </div>
-        <div className="px-6 py-5 space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-neutral-700 mb-1.5">Contact <span className="text-danger-600">*</span></label>
+        <div className="space-y-4 px-6 py-5">
+          <div className="relative">
+            <label className="mb-1.5 block text-sm font-medium text-neutral-700">Contact <span className="text-danger-600">*</span></label>
             {selectedContact ? (
-              <div className="flex items-center justify-between border border-neutral-200 rounded-lg px-3 py-2.5 bg-primary-50">
-                <span className="text-sm font-medium text-primary-800">{selectedContact.firstName} {selectedContact.lastName ?? ''}</span>
-                <button onClick={() => { setSelectedContact(null); setSearch(''); }} className="text-primary-700 hover:text-primary-800 text-xs">Change</button>
-              </div>
+              <div className="flex items-center justify-between rounded-lg border border-primary-200 bg-primary-50 px-3 py-2.5 text-sm"><span className="font-medium text-primary-800">{selectedContact.firstName} {selectedContact.lastName || ''}</span><button type="button" onClick={() => { setSelectedContact(null); setSearch(''); }} className="text-xs font-medium text-primary-700">Change</button></div>
             ) : (
-              <div className="relative">
-                <input
-                  type="text"
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Search contact name..."
-                  className="w-full border border-neutral-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
-                  aria-label="Search contact"
-                />
-                {(searching || contacts.length > 0) && (
-                  <div className="absolute top-full mt-1 w-full bg-white border border-neutral-200 rounded-xl shadow-lg z-10 max-h-48 overflow-y-auto">
-                    {searching && <p className="px-3 py-2 text-sm text-neutral-500">Searching…</p>}
-                    {contacts.map((c) => (
-                      <button
-                        key={c.id}
-                        onClick={() => { setSelectedContact(c); setSearch(''); setContacts([]); }}
-                        className="w-full text-left px-3 py-2.5 text-sm text-neutral-700 hover:bg-neutral-50 flex items-center gap-2"
-                      >
-                        <span className="font-medium">{c.firstName} {c.lastName ?? ''}</span>
-                        {c.phone && <span className="text-neutral-500 text-xs">{c.phone}</span>}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
+              <>
+                <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search contact name…" className="w-full rounded-lg border border-neutral-200 px-3 py-2.5 text-sm" aria-label="Search contacts" autoFocus />
+                {contacts.length > 0 && <div className="absolute z-20 mt-1 max-h-52 w-full overflow-y-auto rounded-xl border border-neutral-200 bg-white py-1 shadow-xl">{contacts.map((contact) => <button key={contact.id} type="button" onClick={() => { setSelectedContact(contact); setContacts([]); }} className="flex w-full items-center justify-between px-3 py-2.5 text-left text-sm hover:bg-neutral-50"><span className="font-medium text-neutral-800">{contact.firstName} {contact.lastName || ''}</span><span className="text-xs text-neutral-400">{contact.companyName || contact.phone || ''}</span></button>)}</div>}
+              </>
             )}
           </div>
-          <div>
-            <label className="block text-sm font-medium text-neutral-700 mb-1.5">Deal Value (&#8377;) <span className="text-neutral-500 font-normal">(optional)</span></label>
-            <div className="relative">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500 text-sm">&#8377;</span>
-              <input
-                type="number"
-                min="0"
-                value={dealValue}
-                onChange={(e) => setDealValue(e.target.value)}
-                placeholder="0"
-                className="w-full border border-neutral-200 rounded-lg pl-7 pr-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
-                aria-label="Deal value in rupees"
-              />
-            </div>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-neutral-700 mb-1.5">Assigned To</label>
-            <select
-              value={assignedTo}
-              onChange={(e) => setAssignedTo(e.target.value)}
-              className="w-full border border-neutral-200 rounded-lg px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary-500"
-              aria-label="Assigned To"
-            >
-              <option value="">Unassigned</option>
-              <option value="jatin">Jatin</option>
-              <option value="saksham">Saksham</option>
-            </select>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-neutral-700 mb-1.5">Source <span className="text-neutral-500 font-normal">(optional)</span></label>
-            <select
-              value={source}
-              onChange={(e) => setSource(e.target.value)}
-              className="w-full border border-neutral-200 rounded-lg px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary-500"
-              aria-label="Source"
-            >
-              <option value="">Unknown</option>
-              <option value="form">Website Form</option>
-              <option value="paid_ad">Paid Ad</option>
-              <option value="referral">Referral</option>
-              <option value="cold_outreach">Cold Outreach</option>
-              <option value="checkout">Checkout</option>
-              <option value="inbound">Inbound Call</option>
-            </select>
+          <div><label className="mb-1.5 block text-sm font-medium text-neutral-700">Deal value</label><input type="number" min="0" value={dealValue} onChange={(event) => setDealValue(event.target.value)} placeholder="₹ 0" className="w-full rounded-lg border border-neutral-200 px-3 py-2.5 text-sm" /></div>
+          <div className="grid grid-cols-2 gap-3">
+            <div><label className="mb-1.5 block text-sm font-medium text-neutral-700">Owner</label><select value={assignedTo} onChange={(event) => setAssignedTo(event.target.value)} className="w-full rounded-lg border border-neutral-200 bg-white px-3 py-2.5 text-sm"><option value="">Unassigned</option><option value="jatin">Jatin</option><option value="saksham">Saksham</option></select></div>
+            <div><label className="mb-1.5 block text-sm font-medium text-neutral-700">Source</label><select value={source} onChange={(event) => setSource(event.target.value)} className="w-full rounded-lg border border-neutral-200 bg-white px-3 py-2.5 text-sm"><option value="">Unknown</option><option value="form">Website</option><option value="paid_ad">Paid Ad</option><option value="referral">Referral</option><option value="cold_outreach">Cold Outreach</option><option value="inbound">Inbound</option></select></div>
           </div>
         </div>
-        <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-neutral-100 bg-neutral-50 rounded-b-2xl">
-          <button onClick={onClose} className="px-4 py-2 text-sm font-medium text-neutral-600 border border-neutral-200 rounded-lg hover:bg-white">Cancel</button>
-          <button
-            onClick={handleAdd}
-            disabled={saving || !selectedContact}
-            className="px-5 py-2 text-sm font-semibold text-white bg-primary-600 hover:bg-primary-700 rounded-lg disabled:opacity-50 flex items-center gap-2"
-          >
-            {saving && <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>}
-            Add Deal
-          </button>
-        </div>
+        <div className="flex justify-end gap-2 border-t border-neutral-100 bg-neutral-50 px-6 py-4"><button type="button" onClick={onClose} className="rounded-lg border border-neutral-200 px-4 py-2 text-sm text-neutral-700">Cancel</button><button type="button" onClick={save} disabled={!selectedContact || saving} className="rounded-lg bg-primary-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{saving ? 'Adding…' : 'Add Deal'}</button></div>
       </div>
     </div>
   );
 }
 
-// ---------------------------------------------------------------------------
-// Main PipelinePage
-// ---------------------------------------------------------------------------
 export default function PipelinePage() {
-  const { showSuccess, showError } = useToast();
-  const [pipelinesList, setPipelinesList] = useState([]);
+  const { showError, showSuccess } = useToast();
+  const [pipelines, setPipelines] = useState([]);
   const [activePipelineId, setActivePipelineId] = useState(null);
-  const [showArchived, setShowArchived] = useState(false);
-  const [kanbanStages, setKanbanStages] = useState([]);
+  const [stages, setStages] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
-  const [selectedDealId, setSelectedDealId] = useState(null);
-  const [selectedContact, setSelectedContact] = useState(null);
-  const [wonLostModal, setWonLostModal] = useState(null);
-  const [addDealModal, setAddDealModal] = useState(null);
-  const [filterAssigned, setFilterAssigned] = useState('');
-  const [filterValue, setFilterValue] = useState('');
-  const [filterAge, setFilterAge] = useState('');
-  const [showAnalytics, setShowAnalytics] = useState(false);
-  const [analytics, setAnalytics] = useState(null);
-  // Bulk-selection state — Set of deal ids currently checked. Empty Set = selection mode off.
+  const [scope, setScope] = useState('active');
+  const [viewMode, setViewMode] = useState('board');
+  const [filters, setFilters] = useState({ search: '', owner: '', stage: '', source: '', value: '', age: '' });
+  const [savedViews, setSavedViews] = useState([]);
   const [selectedIds, setSelectedIds] = useState(() => new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
-  // Bulk archive confirm — split from the old synchronous window.confirm().
-  const [confirmArchive, setConfirmArchive] = useState(false);
+  const [bulkStage, setBulkStage] = useState('');
+  const [bulkOwner, setBulkOwner] = useState('');
+  const [selectedDealId, setSelectedDealId] = useState(null);
+  const [selectedContact, setSelectedContact] = useState(null);
+  const [addDealModal, setAddDealModal] = useState(null);
+  const [pendingMove, setPendingMove] = useState(null);
+  const [confirmAction, setConfirmAction] = useState(null);
+  const [showAnalytics, setShowAnalytics] = useState(false);
+  const [analytics, setAnalytics] = useState(null);
+  const [sortBy, setSortBy] = useState('updated');
+  const boardRef = useRef(null);
 
   const loadPipelines = useCallback(async () => {
     setLoading(true);
     setLoadError('');
     try {
       const data = await apiFetch('/api/pipelines');
-      if (Array.isArray(data) && data.length > 0) {
-        setPipelinesList(data);
-        setActivePipelineId((current) => data.some((pipeline) => pipeline.id === current) ? current : data[0].id);
-      } else {
-        setPipelinesList([]);
-        setActivePipelineId(null);
-        setKanbanStages([]);
-      }
+      const list = Array.isArray(data) ? data : [];
+      setPipelines(list);
+      setActivePipelineId((current) => list.some((item) => item.id === current) ? current : list[0]?.id || null);
     } catch (error) {
-      setPipelinesList([]);
-      setActivePipelineId(null);
-      setKanbanStages([]);
       setLoadError(error?.message || 'Unable to load pipelines.');
-    } finally {
-      setLoading(false);
-    }
+      setPipelines([]);
+      setActivePipelineId(null);
+    } finally { setLoading(false); }
   }, []);
-
-  useEffect(() => { loadPipelines(); }, [loadPipelines]);
 
   const loadDeals = useCallback(async () => {
     if (!activePipelineId) return;
     setLoading(true);
     setLoadError('');
     try {
-      const url = `/api/pipelines/${activePipelineId}/deals${showArchived ? '?includeArchived=true' : ''}`;
-      const data = await apiFetch(url);
-      setKanbanStages(Array.isArray(data?.stages) ? data.stages : []);
+      const data = await apiFetch(`/api/pipelines/${activePipelineId}/deals?includeArchived=true`);
+      setStages(Array.isArray(data?.stages) ? data.stages : []);
     } catch (error) {
-      setKanbanStages([]);
+      setStages([]);
       setLoadError(error?.message || 'Unable to load pipeline deals.');
-    } finally {
-      setLoading(false);
-    }
-  }, [activePipelineId, showArchived]);
+    } finally { setLoading(false); }
+  }, [activePipelineId]);
 
+  useEffect(() => { loadPipelines(); }, [loadPipelines]);
   useEffect(() => { loadDeals(); }, [loadDeals]);
-
-  // Clear bulk selection when switching pipelines or toggling archived view
-  useEffect(() => { setSelectedIds(new Set()); }, [activePipelineId, showArchived]);
-
-  function toggleSelect(dealId) {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(dealId)) next.delete(dealId); else next.add(dealId);
-      return next;
-    });
-  }
-
-  function bulkArchive() {
-    if (selectedIds.size === 0) return;
-    setConfirmArchive(true);
-  }
-
-  async function runBulkArchive() {
-    const ids = Array.from(selectedIds);
-    setBulkBusy(true);
-    try {
-      const res = await apiFetch('/api/deals/bulk-update', {
-        method: 'POST',
-        body: JSON.stringify({ dealIds: ids, updates: { archived: true } }),
-      });
-      if (!res || res.error) throw new Error(res?.error || 'bulk archive failed');
-      // Optimistic: drop the archived deals from local state if we're not showing archived
-      if (!showArchived) {
-        const idSet = new Set(ids);
-        setKanbanStages((prev) => prev.map((s) => ({ ...s, deals: s.deals.filter((d) => !idSet.has(d.id)) })));
-      } else {
-        loadDeals();
-      }
-      setSelectedIds(new Set());
-      setConfirmArchive(false);
-      showSuccess(`Archived ${ids.length} deal${ids.length === 1 ? '' : 's'}`);
-    } catch (err) {
-      setConfirmArchive(false);
-      showError('Failed to archive deals. Reloading the board.');
-      loadDeals();
-    } finally {
-      setBulkBusy(false);
-    }
-  }
+  useEffect(() => { setSelectedIds(new Set()); }, [activePipelineId, scope, viewMode]);
 
   useEffect(() => {
-    if (!showAnalytics || !activePipelineId) return;
-    apiFetch(`/api/pipelines/${activePipelineId}/analytics?days=90`)
-      .then(d => setAnalytics(d))
-      .catch(() => {});
-  }, [showAnalytics, activePipelineId]);
+    try {
+      const parsed = JSON.parse(localStorage.getItem(SAVED_VIEW_KEY) || '[]');
+      if (Array.isArray(parsed)) setSavedViews(parsed);
+    } catch { setSavedViews([]); }
+  }, []);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -561,459 +427,269 @@ export default function PipelinePage() {
     if (dealId) setSelectedDealId(dealId);
   }, []);
 
-  // Deep-link: /pipeline?newDeal=1 opens Add Deal directly. Used by the
-  // ClientsPage "Add Client" CTA — there's no direct client-creation form,
-  // winning a deal here is what auto-creates the client record. Waits for
-  // the active pipeline + its stages to be loaded so it has a real stage to
-  // default into, then strips the param so refresh/back doesn't reopen it.
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    if (params.get('newDeal') !== '1') return;
-    if (!activePipelineId || kanbanStages.length === 0) return;
-    setAddDealModal({ pipelineId: activePipelineId, stageName: kanbanStages[0]?.stageName ?? '' });
+    if (params.get('newDeal') !== '1' || !activePipelineId || stages.length === 0) return;
+    setAddDealModal({ pipelineId: activePipelineId, stageName: stages[0]?.stageName || '' });
     params.delete('newDeal');
     const rest = params.toString();
     window.history.replaceState({}, '', `${window.location.pathname}${rest ? `?${rest}` : ''}`);
-  }, [activePipelineId, kanbanStages]);
+  }, [activePipelineId, stages]);
 
-  const activePipeline = pipelinesList.find((p) => p.id === activePipelineId);
-  const totalDeals = kanbanStages.reduce((s, st) => s + (Array.isArray(st.deals) ? st.deals.length : 0), 0);
-  const totalValue = kanbanStages.reduce((s, st) => s + Number(st.totalValue ?? 0), 0);
+  useEffect(() => {
+    if (!showAnalytics || !activePipelineId) return;
+    apiFetch(`/api/pipelines/${activePipelineId}/analytics?days=90`).then(setAnalytics).catch(() => setAnalytics(null));
+  }, [showAnalytics, activePipelineId]);
 
-  async function archiveDeal(dealId, archived) {
-    let deal = null;
-    for (const s of kanbanStages) { deal = s.deals.find((d) => d.id === dealId); if (deal) break; }
-    if (!deal) return;
-    await apiFetch(`/api/deals/${dealId}`, {
-      method: 'PATCH',
-      body: JSON.stringify({ metadata: { ...(deal.metadata ?? {}), archived } }),
+  const flattened = useMemo(() => stages.flatMap((stage, stageIndex) => (stage.deals || []).map((deal) => ({ ...deal, _stageIndex: stageIndex, _stageLabel: stage.stageLabel || stage.stageName, _stageOutcome: stage.stageOutcome }))), [stages]);
+  const scopedDeals = useMemo(() => flattened.filter((deal) => inScope(deal, scope) && matchesFilters(deal, filters)), [flattened, filters, scope]);
+  const selectedDeals = useMemo(() => scopedDeals.filter((deal) => selectedIds.has(deal.id)), [scopedDeals, selectedIds]);
+  const totalValue = scopedDeals.reduce((sum, deal) => sum + Number(deal.dealValue || 0), 0);
+  const sources = useMemo(() => Array.from(new Set(flattened.map((deal) => deal.source).filter(Boolean))).sort(), [flattened]);
+  const ownerOptions = useMemo(() => Array.from(new Set(flattened.map((deal) => safeLower(deal.assignedTo)).filter(Boolean))).sort(), [flattened]);
+
+  const sortedList = useMemo(() => {
+    const next = [...scopedDeals];
+    next.sort((a, b) => {
+      if (sortBy === 'value') return Number(b.dealValue || 0) - Number(a.dealValue || 0);
+      if (sortBy === 'age') return daysAgo(b.updatedAt || b.createdAt) - daysAgo(a.updatedAt || a.createdAt);
+      if (sortBy === 'name') return safeText(a.contactName).localeCompare(safeText(b.contactName));
+      return new Date(b.updatedAt || b.createdAt || 0).getTime() - new Date(a.updatedAt || a.createdAt || 0).getTime();
     });
-    if (!showArchived) {
-      // Remove card from view immediately — no reload needed
-      setKanbanStages((prev) =>
-        prev.map((s) => ({ ...s, deals: s.deals.filter((d) => d.id !== dealId) }))
-      );
-    } else {
-      loadDeals();
-    }
+    return next;
+  }, [scopedDeals, sortBy]);
+
+  function updateFilter(key, value) { setFilters((current) => ({ ...current, [key]: value })); }
+  function clearFilters() { setFilters({ search: '', owner: '', stage: '', source: '', value: '', age: '' }); }
+  function toggleSelect(id) { setSelectedIds((current) => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next; }); }
+  function selectAllVisible() { setSelectedIds((current) => current.size === scopedDeals.length ? new Set() : new Set(scopedDeals.map((deal) => deal.id))); }
+  function scrollBoard(direction) { boardRef.current?.scrollBy({ left: direction * Math.max(560, boardRef.current.clientWidth * 0.7), behavior: 'smooth' }); }
+
+  function saveCurrentView() {
+    const name = window.prompt('Name this pipeline view');
+    if (!name?.trim()) return;
+    const entry = { id: `${Date.now()}`, name: name.trim(), filters, scope, viewMode };
+    const next = [...savedViews.filter((item) => item.name !== entry.name), entry].slice(-12);
+    setSavedViews(next);
+    localStorage.setItem(SAVED_VIEW_KEY, JSON.stringify(next));
+    showSuccess(`Saved view “${entry.name}”`);
   }
 
-  function applyMove(deal, fromStage, toStage, destIndex) {
-    setKanbanStages((prev) => prev.map((s) => {
-      if (s.stageName === fromStage) return { ...s, deals: (s.deals ?? []).filter((d) => d.id !== deal.id) };
-      if (s.stageName === toStage) {
-        const arr = [...(s.deals ?? [])];
-        arr.splice(destIndex, 0, { ...deal, stage: toStage });
-        return { ...s, deals: arr };
-      }
-      return s;
+  function applySavedView(id) {
+    const view = savedViews.find((item) => item.id === id);
+    if (!view) return;
+    setFilters({ search: '', owner: '', stage: '', source: '', value: '', age: '', ...(view.filters || {}) });
+    setScope(view.scope || 'active');
+    setViewMode(view.viewMode || 'board');
+  }
+
+  function optimisticPatchDeal(dealId, updater) {
+    setStages((current) => current.map((stage) => ({ ...stage, deals: (stage.deals || []).map((deal) => deal.id === dealId ? updater(deal) : deal) })));
+  }
+
+  async function patchMetadata(deal, metadata) {
+    await apiFetch(`/api/deals/${deal.id}`, { method: 'PATCH', body: JSON.stringify({ metadata }) });
+    optimisticPatchDeal(deal.id, (item) => ({ ...item, metadata }));
+  }
+
+  async function archiveDeal(deal) {
+    await patchMetadata(deal, { ...(deal.metadata || {}), archived: true });
+    showSuccess('Deal archived');
+  }
+
+  async function restoreDeal(deal) {
+    if (scope === 'trash' && isTrashRestoreExpired(deal.metadata?.deletedAt)) {
+      showError('The 60-day restore window for this deal has expired.');
+      return;
+    }
+    const wasArchived = deal.metadata?.preDeleteArchived === true;
+    const metadata = { ...stripTrashMetadata(deal.metadata || {}), archived: scope === 'trash' ? wasArchived : false };
+    await patchMetadata(deal, metadata);
+    showSuccess(scope === 'trash' ? (wasArchived ? 'Deal restored to Archived' : 'Deal restored to active pipeline') : 'Deal unarchived');
+  }
+
+  function requestDelete(deal) { setConfirmAction({ type: 'delete-one', deal }); }
+
+  async function moveToTrash(deal) {
+    await patchMetadata(deal, makeTrashMetadata(deal.metadata || {}));
+    showSuccess(`Moved to Trash · restorable for ${TRASH_RETENTION_DAYS} days`);
+  }
+
+  async function runBulkMetadata(mode) {
+    let deals = selectedDeals;
+    if (!deals.length) return;
+    if (mode === 'restore') {
+      const restorable = deals.filter((deal) => !isTrashRestoreExpired(deal.metadata?.deletedAt));
+      if (!restorable.length) { showError('The restore window has expired for the selected Trash records.'); return; }
+      if (restorable.length !== deals.length) showError(`${deals.length - restorable.length} expired deal${deals.length - restorable.length === 1 ? '' : 's'} were left in Trash.`);
+      deals = restorable;
+    }
+    setBulkBusy(true);
+    try {
+      await Promise.all(deals.map(async (deal) => {
+        let metadata;
+        if (mode === 'delete') metadata = makeTrashMetadata(deal.metadata || {});
+        else if (mode === 'archive') metadata = { ...(deal.metadata || {}), archived: true };
+        else {
+          const wasArchived = deal.metadata?.preDeleteArchived === true;
+          metadata = { ...stripTrashMetadata(deal.metadata || {}), archived: scope === 'trash' ? wasArchived : false };
+        }
+        await apiFetch(`/api/deals/${deal.id}`, { method: 'PATCH', body: JSON.stringify({ metadata }) });
+      }));
+      setSelectedIds(new Set());
+      await loadDeals();
+      showSuccess(mode === 'delete' ? `Moved ${deals.length} deal${deals.length === 1 ? '' : 's'} to Trash` : mode === 'archive' ? `Archived ${deals.length} deal${deals.length === 1 ? '' : 's'}` : `Restored ${deals.length} deal${deals.length === 1 ? '' : 's'}`);
+    } catch {
+      showError('Some deals could not be updated. The board has been refreshed.');
+      await loadDeals();
+    } finally { setBulkBusy(false); }
+  }
+
+  async function runBulkFieldUpdate() {
+    if (!selectedIds.size || (!bulkStage && !bulkOwner)) return;
+    setBulkBusy(true);
+    try {
+      const updates = {};
+      if (bulkStage) updates.stage = bulkStage;
+      if (bulkOwner) updates.assignedTo = bulkOwner === 'unassigned' ? '' : bulkOwner;
+      await apiFetch('/api/deals/bulk-update', { method: 'POST', body: JSON.stringify({ dealIds: Array.from(selectedIds), updates }) });
+      setBulkStage(''); setBulkOwner(''); setSelectedIds(new Set()); await loadDeals(); showSuccess('Selected deals updated');
+    } catch { showError('Bulk update failed.'); } finally { setBulkBusy(false); }
+  }
+
+  function applyMove(deal, fromStage, toStage, index) {
+    setStages((current) => current.map((stage) => {
+      if (stage.stageName === fromStage) return { ...stage, deals: (stage.deals || []).filter((item) => item.id !== deal.id) };
+      if (stage.stageName === toStage) { const deals = [...(stage.deals || [])]; deals.splice(index, 0, { ...deal, stage: toStage }); return { ...stage, deals }; }
+      return stage;
     }));
   }
 
   async function onDragEnd(result) {
     const { destination, source, draggableId } = result;
-    if (!destination || destination.droppableId === source.droppableId) return;
-    const fromStage = source.droppableId;
-    const toStage = destination.droppableId;
-    const fromData = kanbanStages.find((s) => s.stageName === fromStage);
-    const toData = kanbanStages.find((s) => s.stageName === toStage);
-    const deal = fromData?.deals?.find((d) => d.id === draggableId);
-    if (!deal) return;
-    if (isTerminalOutcome(toData?.stageOutcome)) {
-      setWonLostModal({
-        deal,
-        fromStage,
-        toStage,
-        toStageLabel: toData.stageLabel || toData.stageName,
-        stageOutcome: toData.stageOutcome,
-        destIndex: destination.index,
-      });
+    if (!destination || source.droppableId === destination.droppableId || scope !== 'active' || selectedIds.size > 0) return;
+    const fromStage = stages.find((stage) => stage.stageName === source.droppableId);
+    const toStage = stages.find((stage) => stage.stageName === destination.droppableId);
+    const deal = fromStage?.deals?.find((item) => item.id === draggableId);
+    if (!deal || !toStage) return;
+    if (isTerminalOutcome(toStage.stageOutcome)) {
+      setPendingMove({ deal, fromStage: source.droppableId, toStage: destination.droppableId, toStageLabel: toStage.stageLabel || toStage.stageName, stageOutcome: toStage.stageOutcome, destIndex: destination.index });
       return;
     }
-    applyMove(deal, fromStage, toStage, destination.index);
-    await apiFetch(`/api/deals/${draggableId}`, {
-      method: 'PATCH',
-      body: JSON.stringify({ stage: toStage }),
-    });
+    applyMove(deal, source.droppableId, destination.droppableId, destination.index);
+    try { await apiFetch(`/api/deals/${deal.id}`, { method: 'PATCH', body: JSON.stringify({ stage: destination.droppableId }) }); }
+    catch { showError('Stage move failed. Reloading the board.'); loadDeals(); }
   }
 
-  async function confirmWonLost(lostReason, wonNotes) {
-    if (!wonLostModal) return;
-    const { deal, fromStage, toStage, destIndex } = wonLostModal;
-    setWonLostModal(null);
-    applyMove(deal, fromStage, toStage, destIndex ?? 0);
-    await apiFetch(`/api/deals/${deal.id}`, {
-      method: 'PATCH',
-      body: JSON.stringify({
-        stage: toStage,
-        ...(lostReason ? { lostReason } : {}),
-        ...(wonNotes ? { wonNotes } : {}),
-      }),
-    });
-  }
-
-  function openDeal(deal) {
-    setSelectedDealId(deal.id);
-    setSelectedContact(null);
+  async function confirmTerminalMove(reason, notes) {
+    const move = pendingMove;
+    if (!move) return;
+    setPendingMove(null);
+    applyMove(move.deal, move.fromStage, move.toStage, move.destIndex || 0);
+    try { await apiFetch(`/api/deals/${move.deal.id}`, { method: 'PATCH', body: JSON.stringify({ stage: move.toStage, ...(reason ? { lostReason: reason } : {}), ...(notes ? { wonNotes: notes } : {}) }) }); }
+    catch { showError('Stage move failed. Reloading the board.'); loadDeals(); }
   }
 
   function openContactFromDeal(deal) {
-    const nameParts = (deal.first_name ? [deal.first_name, deal.last_name].filter(Boolean) : (deal.contactName ?? '').split(' '));
-    setSelectedContact({
-      id: deal.contact_id ?? deal.contactId,
-      firstName: nameParts[0] ?? '',
-      lastName: nameParts.slice(1).join(' ') || null,
-      companyName: deal.company_name ?? deal.companyName ?? null,
-      score: deal.score ?? 0,
-    });
+    const nameParts = deal.first_name ? [deal.first_name, deal.last_name].filter(Boolean) : safeText(deal.contactName).split(' ');
+    setSelectedContact({ id: deal.contact_id || deal.contactId, firstName: nameParts[0] || '', lastName: nameParts.slice(1).join(' ') || null, companyName: deal.company_name || deal.companyName || null, score: deal.score || 0 });
   }
 
-  function handleDealAdded(deal) {
-    loadDeals();
-    setAddDealModal(null);
+  async function confirmDialogAction() {
+    const action = confirmAction;
+    if (!action) return;
+    setConfirmAction(null);
+    if (action.type === 'delete-one') await moveToTrash(action.deal);
+    if (action.type === 'delete-bulk') await runBulkMetadata('delete');
+    if (action.type === 'archive-bulk') await runBulkMetadata('archive');
+    if (action.type === 'restore-bulk') await runBulkMetadata('restore');
   }
+
+  const hasFilters = Object.values(filters).some(Boolean);
+  const scopeCounts = flattened.reduce((acc, deal) => { if (isDeleted(deal)) acc.trash += 1; else if (isArchivedOnly(deal)) acc.archived += 1; else acc.active += 1; return acc; }, { active: 0, archived: 0, trash: 0 });
 
   return (
-    <div className="flex min-h-screen bg-neutral-50">
+    <div className="flex h-screen overflow-hidden bg-neutral-50">
       <Sidebar />
-      <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        {/* Header */}
-        <div className="bg-white border-b px-6 py-4 shrink-0">
-          {/* This page has no visible title — its header is a pipeline picker.
-              A visually-hidden h1 gives the document a correct outline without
-              changing the layout. Promoting the "Pipeline:" field label to h1
-              instead would name the page after a form control. */}
-          <h1 className="sr-only">Pipeline</h1>
-          <div className="flex items-center gap-4 flex-wrap">
-            {/* Pipeline dropdown */}
+      <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
+        <h1 className="sr-only">Pipeline</h1>
+        <header className="shrink-0 border-b border-neutral-200 bg-white px-5 py-3">
+          <div className="flex flex-wrap items-center gap-3">
             <div className="flex items-center gap-2">
-              <span className="text-sm font-medium text-neutral-500 shrink-0">Pipeline:</span>
-              <div className="relative">
-                <select
-                  value={activePipelineId ?? ''}
-                  onChange={(e) => setActivePipelineId(e.target.value)}
-                  className="appearance-none border border-neutral-200 rounded-xl pl-3 pr-8 py-2 text-sm font-semibold text-neutral-800 bg-white focus:outline-none focus:ring-2 focus:ring-primary-400 cursor-pointer"
-                  style={{ minWidth: 180 }}
-                  aria-label="Pipeline"
-                >
-                  {pipelinesList.map((p) => (
-                    <option key={p.id} value={p.id}>{p.name}</option>
-                  ))}
-                </select>
-                <div className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2">
-                  <svg className="w-4 h-4 text-neutral-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7"/>
-                  </svg>
-                </div>
-              </div>
-              {totalDeals > 0 && (
-                <span className="text-xs text-neutral-500 bg-neutral-100 px-2.5 py-1 rounded-full font-medium">
-                  {totalDeals} deal{totalDeals !== 1 ? 's' : ''}
-                  {totalValue > 0 && ` · ${fmtInr(totalValue)}`}
-                </span>
-              )}
-              <Link
-                to={productPath('/pipelines/settings')}
-                className="p-2 rounded-lg hover:bg-neutral-100 text-neutral-500 hover:text-neutral-600 transition-colors"
-                title="Pipeline Settings"
-              >
-                <Settings className="w-4 h-4" />
-              </Link>
+              <span className="text-sm font-medium text-neutral-500">Pipeline:</span>
+              <select value={activePipelineId || ''} onChange={(event) => setActivePipelineId(event.target.value)} className="min-w-[220px] rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm font-semibold text-neutral-800 focus:ring-2 focus:ring-primary-400" aria-label="Pipeline">{pipelines.map((pipeline) => <option key={pipeline.id} value={pipeline.id}>{pipeline.name}</option>)}</select>
+              <span className="rounded-full bg-neutral-100 px-2.5 py-1 text-xs font-medium text-neutral-600">{scopedDeals.length} deal{scopedDeals.length === 1 ? '' : 's'}{totalValue > 0 ? ` · ${fmtInr(totalValue)}` : ''}</span>
+              <Link to={productPath('/pipelines/settings')} className="rounded-lg p-2 text-neutral-500 hover:bg-neutral-100" title="Pipeline settings"><Settings className="h-4 w-4" /></Link>
             </div>
-
             <div className="flex-1" />
-
-            {/* Show archived toggle */}
-            <label className="flex items-center gap-2 text-sm text-neutral-500 cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={showArchived}
-                onChange={(e) => setShowArchived(e.target.checked)}
-                className="rounded border-neutral-300 text-primary-500 focus:ring-primary-400"
-              />
-              Show archived
-            </label>
-
-            {/* Analytics toggle */}
-            <button
-              onClick={() => setShowAnalytics(v => !v)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors ${showAnalytics ? 'bg-primary-50 border-primary-300 text-primary-700' : 'border-neutral-200 text-neutral-500 hover:text-neutral-700 hover:bg-neutral-50'}`}
-            >
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
-              </svg>
-              Analytics
-            </button>
-
-            {/* Add Deal — top right */}
-            <button
-              onClick={() => setAddDealModal({ pipelineId: activePipelineId, stageName: kanbanStages[0]?.stageName ?? '' })}
-              className="flex items-center gap-1.5 px-4 py-2 text-sm font-semibold text-white bg-primary-600 hover:bg-primary-700 rounded-lg transition-colors"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
-              Add Deal
-            </button>
+            {viewMode === 'board' && <div className="hidden items-center gap-1 md:flex"><button type="button" onClick={() => scrollBoard(-1)} className="rounded-lg border border-neutral-200 p-2 text-neutral-500 hover:bg-neutral-50" aria-label="Scroll pipeline left"><ChevronLeft className="h-4 w-4" /></button><button type="button" onClick={() => scrollBoard(1)} className="rounded-lg border border-neutral-200 p-2 text-neutral-500 hover:bg-neutral-50" aria-label="Scroll pipeline right"><ChevronRight className="h-4 w-4" /></button></div>}
+            <div className="flex rounded-lg border border-neutral-200 bg-neutral-50 p-0.5"><button type="button" onClick={() => setViewMode('board')} className={`flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium ${viewMode === 'board' ? 'bg-white text-primary-700 shadow-sm' : 'text-neutral-500'}`}><LayoutGrid className="h-3.5 w-3.5" /> Board</button><button type="button" onClick={() => setViewMode('list')} className={`flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium ${viewMode === 'list' ? 'bg-white text-primary-700 shadow-sm' : 'text-neutral-500'}`}><List className="h-3.5 w-3.5" /> List</button></div>
+            <button type="button" onClick={() => setShowAnalytics((value) => !value)} className={`flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-medium ${showAnalytics ? 'border-primary-300 bg-primary-50 text-primary-700' : 'border-neutral-200 text-neutral-600 hover:bg-neutral-50'}`}><BarChart3 className="h-3.5 w-3.5" /> Analytics</button>
+            <button type="button" onClick={() => setAddDealModal({ pipelineId: activePipelineId, stageName: stages[0]?.stageName || '' })} disabled={!activePipelineId || !stages.length || scope !== 'active'} className="flex items-center gap-1.5 rounded-lg bg-primary-600 px-4 py-2 text-sm font-semibold text-white hover:bg-primary-700 disabled:opacity-50"><Plus className="h-4 w-4" /> Add Deal</button>
           </div>
 
-          {/* Filters — compact inline row */}
-          <div className="flex items-center gap-2 mt-2 flex-wrap">
-            <select value={filterAssigned} onChange={(e) => setFilterAssigned(e.target.value)}
-              aria-label="Filter by owner"
-              className="text-xs border border-neutral-200 rounded-lg px-2.5 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-primary-400">
-              <option value="">All Owners</option>
-              <option value="jatin">Jatin</option>
-              <option value="saksham">Saksham</option>
-              <option value="unassigned">Unassigned</option>
-            </select>
-            <select value={filterValue} onChange={(e) => setFilterValue(e.target.value)}
-              aria-label="Filter by deal value"
-              className="text-xs border border-neutral-200 rounded-lg px-2.5 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-primary-400">
-              <option value="">All Values</option>
-              <option value="high">High (10L+)</option>
-              <option value="medium">Medium (1-10L)</option>
-              <option value="low">Low (&lt; 1L)</option>
-            </select>
-            <select value={filterAge} onChange={(e) => setFilterAge(e.target.value)}
-              aria-label="Filter by deal age"
-              className="text-xs border border-neutral-200 rounded-lg px-2.5 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-primary-400">
-              <option value="">All Ages</option>
-              <option value="stale">Stale (3+ days)</option>
-              <option value="week">This Week</option>
-              <option value="today">Today</option>
-            </select>
-            {(filterAssigned || filterValue || filterAge) && (
-              <button onClick={() => { setFilterAssigned(''); setFilterValue(''); setFilterAge(''); }}
-                className="text-xs text-danger-600 hover:text-danger-700 font-medium">Clear</button>
-            )}
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <div className="relative min-w-[240px] flex-1 max-w-md"><Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400" /><input value={filters.search} onChange={(event) => updateFilter('search', event.target.value)} placeholder="Search lead, company, source, owner…" className="w-full rounded-lg border border-neutral-200 bg-white py-2 pl-9 pr-3 text-sm focus:ring-2 focus:ring-primary-400" /></div>
+            <select value={filters.owner} onChange={(event) => updateFilter('owner', event.target.value)} className="rounded-lg border border-neutral-200 bg-white px-2.5 py-2 text-xs" aria-label="Filter by owner"><option value="">All owners</option><option value="unassigned">Unassigned</option>{ownerOptions.map((owner) => <option key={owner} value={owner}>{owner}</option>)}</select>
+            <select value={filters.stage} onChange={(event) => updateFilter('stage', event.target.value)} className="rounded-lg border border-neutral-200 bg-white px-2.5 py-2 text-xs" aria-label="Filter by stage"><option value="">All stages</option>{stages.map((stage) => <option key={stage.stageName} value={stage.stageName}>{stage.stageLabel || stage.stageName}</option>)}</select>
+            <select value={filters.source} onChange={(event) => updateFilter('source', event.target.value)} className="rounded-lg border border-neutral-200 bg-white px-2.5 py-2 text-xs" aria-label="Filter by source"><option value="">All sources</option>{sources.map((source) => <option key={source} value={source}>{source}</option>)}</select>
+            <select value={filters.value} onChange={(event) => updateFilter('value', event.target.value)} className="rounded-lg border border-neutral-200 bg-white px-2.5 py-2 text-xs" aria-label="Filter by value"><option value="">All values</option><option value="high">₹10L+</option><option value="medium">₹1L–₹10L</option><option value="low">Below ₹1L</option></select>
+            <select value={filters.age} onChange={(event) => updateFilter('age', event.target.value)} className="rounded-lg border border-neutral-200 bg-white px-2.5 py-2 text-xs" aria-label="Filter by age"><option value="">All ages</option><option value="stale">Stale 3+ days</option><option value="week">Last 7 days</option><option value="today">Today</option></select>
+            {hasFilters && <button type="button" onClick={clearFilters} className="text-xs font-medium text-danger-600 hover:text-danger-700">Clear</button>}
+            <div className="ml-auto flex items-center gap-2">{savedViews.length > 0 && <select defaultValue="" onChange={(event) => { applySavedView(event.target.value); event.target.value = ''; }} className="rounded-lg border border-neutral-200 bg-white px-2.5 py-2 text-xs" aria-label="Saved views"><option value="" disabled>Saved views</option>{savedViews.map((view) => <option key={view.id} value={view.id}>{view.name}</option>)}</select>}<button type="button" onClick={saveCurrentView} className="flex items-center gap-1 rounded-lg border border-neutral-200 px-2.5 py-2 text-xs font-medium text-neutral-600 hover:bg-neutral-50"><Save className="h-3.5 w-3.5" /> Save view</button></div>
           </div>
-        </div>
 
-        {showAnalytics && analytics && (
-          <div className="bg-white border-b border-neutral-100 px-6 py-3 shrink-0">
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              {[
-                { label: 'Weighted Forecast', value: analytics.forecast > 0 ? fmtInr(analytics.forecast) : '₹0', color: 'text-success-700' },
-                { label: 'Win Rate', value: `${Math.round(analytics.winRate * 100)}%`, color: 'text-primary-600' },
-                { label: 'Avg Cycle', value: analytics.avgCycleDays ? `${analytics.avgCycleDays}d` : '—', color: 'text-accent-700' },
-                { label: 'Open Deals', value: `${analytics.openCount}`, color: 'text-neutral-700' },
-              ].map(kpi => (
-                <div key={kpi.label} className="bg-neutral-50 rounded-xl px-4 py-3 border border-neutral-100">
-                  <p className="text-[10px] uppercase tracking-wide text-neutral-500 mb-1">{kpi.label}</p>
-                  <p className={`text-lg font-bold ${kpi.color}`}>{kpi.value}</p>
-                </div>
-              ))}
-            </div>
-            {analytics.byStage?.length > 0 && (
-              <div className="mt-2 flex gap-3 overflow-x-auto pb-1">
-                {analytics.byStage.map(s => (
-                  <div key={s.stage} className="shrink-0 bg-neutral-50 rounded-lg px-3 py-1.5 border border-neutral-100 text-xs">
-                    <span className="font-medium text-neutral-700">{s.stage}</span>
-                    <span className="text-neutral-500 ml-2">{s.count} deals</span>
-                    {s.value > 0 && <span className="text-success-700 ml-2">{fmtInr(s.value)}</span>}
-                    <span className="text-warning-700 ml-2">{s.avg_age_days}d avg</span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
+          <div className="mt-3 flex w-fit items-center gap-1 rounded-lg bg-neutral-100 p-1">{[['active', 'Active', scopeCounts.active], ['archived', 'Archived', scopeCounts.archived], ['trash', 'Trash', scopeCounts.trash]].map(([value, label, count]) => <button key={value} type="button" onClick={() => setScope(value)} className={`rounded-md px-3 py-1.5 text-xs font-medium ${scope === value ? 'bg-white text-neutral-900 shadow-sm' : 'text-neutral-500 hover:text-neutral-700'}`}>{label} <span className="ml-1 text-neutral-400">{count}</span></button>)}</div>
+        </header>
+
+        {showAnalytics && analytics && <div className="shrink-0 border-b border-neutral-200 bg-white px-5 py-3"><div className="grid grid-cols-2 gap-3 md:grid-cols-4">{[['Weighted Forecast', analytics.forecast > 0 ? fmtInr(analytics.forecast) : '₹0'], ['Win Rate', `${Math.round((analytics.winRate || 0) * 100)}%`], ['Avg Cycle', analytics.avgCycleDays ? `${analytics.avgCycleDays}d` : '—'], ['Open Deals', `${analytics.openCount || 0}`]].map(([label, value]) => <div key={label} className="rounded-xl border border-neutral-100 bg-neutral-50 px-4 py-2.5"><p className="text-[10px] uppercase tracking-wide text-neutral-500">{label}</p><p className="mt-0.5 text-lg font-bold text-neutral-800">{value}</p></div>)}</div></div>}
 
         {loadError && !loading ? (
-          <div className="flex-1 flex flex-col items-center justify-center text-center p-8" role="alert">
-            <div className="max-w-lg rounded-xl border border-danger-200 bg-danger-50 px-5 py-4 text-danger-800">
-              <h3 className="text-base font-semibold">Could not load the pipeline</h3>
-              <p className="mt-1 text-sm">{loadError}</p>
-              <button type="button" onClick={loadPipelines} className="btn-primary btn-compact mt-4">
-                Retry
-              </button>
-            </div>
-          </div>
-        ) : pipelinesList.length === 0 && !loading ? (
-          <div className="flex-1 flex flex-col items-center justify-center text-center p-8">
-            <div className="w-16 h-16 bg-neutral-100 rounded-2xl flex items-center justify-center mb-4">
-              <svg className="w-8 h-8 text-neutral-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7"/>
-              </svg>
-            </div>
-            <h3 className="text-lg font-semibold text-neutral-700 mb-2">No pipelines yet</h3>
-            <Link to={productPath('/pipelines/settings')} className="text-sm font-medium text-accent-600 hover:text-accent-700">
-              Create your first pipeline &rarr;
-            </Link>
-          </div>
+          <div className="flex flex-1 items-center justify-center p-8"><div className="max-w-lg rounded-xl border border-danger-200 bg-danger-50 px-5 py-4 text-center text-danger-800"><h3 className="font-semibold">Could not load the pipeline</h3><p className="mt-1 text-sm">{loadError}</p><button type="button" onClick={loadDeals} className="mt-4 rounded-lg bg-danger-600 px-4 py-2 text-sm font-medium text-white">Retry</button></div></div>
         ) : loading ? (
-          <div className="flex gap-3 px-4 py-4 overflow-x-auto">
-            {[1, 2, 3, 4].map((n) => (
-              <div key={n} className="min-w-[220px] w-[220px] shrink-0 rounded-xl border border-neutral-200 bg-neutral-100 animate-pulse h-64"/>
-            ))}
-          </div>
-        ) : (
+          <div className="flex min-h-0 flex-1 gap-3 overflow-hidden p-4">{[1, 2, 3, 4].map((item) => <div key={item} className="h-full min-w-[280px] animate-pulse rounded-xl border border-neutral-200 bg-neutral-100" />)}</div>
+        ) : !pipelines.length ? (
+          <div className="flex flex-1 items-center justify-center p-8 text-center"><div><h3 className="text-lg font-semibold text-neutral-800">No pipelines yet</h3><Link to={productPath('/pipelines/settings')} className="mt-2 inline-block text-sm font-medium text-primary-600">Create your first pipeline →</Link></div></div>
+        ) : viewMode === 'board' ? (
           <DragDropContext onDragEnd={onDragEnd}>
-            <div className="flex gap-3 px-4 py-4 overflow-x-auto snap-x snap-mandatory md:overflow-x-visible flex-1">
-              {kanbanStages.map((stageData, stageIndex) => {
-                const displayStageName = stageData.stageLabel || stageData.stageName;
-                const { color, light } = getStageStyle(displayStageName, stageIndex, stageData.stageOutcome);
-                const headerColor = stageData.stageColor || color;
-                const stageDeals = (stageData.deals ?? []).filter(deal => {
-                  if (filterAssigned) {
-                    if (filterAssigned === 'unassigned' && deal.assignedTo) return false;
-                    if (filterAssigned !== 'unassigned' && safeLower(deal.assignedTo) !== filterAssigned) return false;
-                  }
-                  if (filterValue) {
-                    const v = Number(deal.dealValue || 0);
-                    if (filterValue === 'high' && v < 1000000) return false;
-                    if (filterValue === 'medium' && (v < 100000 || v >= 1000000)) return false;
-                    if (filterValue === 'low' && v >= 100000) return false;
-                  }
-                  if (filterAge) {
-                    const days = daysAgo(deal.updatedAt || deal.createdAt);
-                    if (filterAge === 'stale' && days < 3) return false;
-                    if (filterAge === 'week' && days > 7) return false;
-                    if (filterAge === 'today' && days > 0) return false;
-                  }
-                  return true;
-                });
+            <div ref={boardRef} className="flex min-h-0 flex-1 gap-3 overflow-x-auto overflow-y-hidden px-4 py-4 overscroll-x-contain scroll-smooth">
+              {stages.map((stage, stageIndex) => {
+                const label = stage.stageLabel || stage.stageName;
+                const style = getStageStyle(label, stageIndex, stage.stageOutcome);
+                const deals = (stage.deals || []).filter((deal) => inScope(deal, scope) && matchesFilters(deal, filters));
+                const value = deals.reduce((sum, deal) => sum + Number(deal.dealValue || 0), 0);
                 return (
-                  <div key={stageData.stageId || stageData.stageName} className={`snap-center min-w-[85vw] md:min-w-[220px] flex flex-col rounded-xl border ${light} w-[220px] shrink-0`}>
-                    {/* Column header */}
-                    <div
-                      className="rounded-t-xl px-3 py-2.5"
-                      style={{ background: headerColor }}
-                    >
-                      <div className="flex items-center justify-between mb-0.5">
-                        <h2 className="text-white font-semibold text-xs uppercase tracking-wide truncate flex-1 mr-1">
-                          {displayStageName}
-                        </h2>
-                        <span className="bg-white/25 text-white text-xs font-bold px-1.5 py-0.5 rounded-full shrink-0">
-                          {stageDeals.length}
-                        </span>
-                      </div>
-                      {stageData.totalValue > 0 && (
-                        <p className="text-white/75 text-[10px] font-medium">{fmtInr(stageData.totalValue)}</p>
-                      )}
-                    </div>
-
-                    {/* Droppable */}
-                    <Droppable droppableId={stageData.stageName}>
-                      {(provided, snapshot) => (
-                        <div
-                          ref={provided.innerRef}
-                          {...provided.droppableProps}
-                          className={`flex-1 p-2 space-y-2 min-h-[100px] rounded-b-xl transition-colors ${snapshot.isDraggingOver ? 'bg-white/70' : ''}`}
-                        >
-                          {stageDeals.map((deal, index) => (
-                            <DealCard
-                              key={deal.id}
-                              deal={deal}
-                              index={index}
-                              onClick={() => openDeal(deal)}
-                              onArchive={() => archiveDeal(deal.id, true)}
-                              onUnarchive={() => archiveDeal(deal.id, false)}
-                              selected={selectedIds.has(deal.id)}
-                              onToggleSelect={() => toggleSelect(deal.id)}
-                              selectionMode={selectedIds.size > 0}
-                            />
-                          ))}
-                          {provided.placeholder}
-                          {stageDeals.length === 0 && !snapshot.isDraggingOver && (
-                            <p className="text-center text-xs text-neutral-600 py-2">Empty</p>
-                          )}
-                        </div>
-                      )}
+                  <section key={stage.stageId || stage.stageName} className={`flex h-full min-h-0 w-[280px] min-w-[280px] shrink-0 flex-col overflow-hidden rounded-xl border ${style.light}`}>
+                    <div className="sticky top-0 z-10 shrink-0 rounded-t-xl px-3 py-2.5 text-white" style={{ background: stage.stageColor || style.color }}><div className="flex items-center justify-between gap-2"><h2 className="truncate text-xs font-semibold uppercase tracking-wide">{label}</h2><span className="rounded-full bg-white/20 px-2 py-0.5 text-xs font-bold">{deals.length}</span></div><div className="mt-1 flex items-center justify-between text-[10px] text-white/80"><span>{value > 0 ? fmtInr(value) : '—'}</span>{deals.length > 0 && <span>{Math.round(deals.reduce((sum, deal) => sum + daysAgo(deal.updatedAt || deal.createdAt), 0) / deals.length)}d avg</span>}</div></div>
+                    <Droppable droppableId={stage.stageName} isDropDisabled={scope !== 'active' || selectedIds.size > 0}>
+                      {(provided, snapshot) => <div ref={provided.innerRef} {...provided.droppableProps} className={`min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-y-contain p-2 ${snapshot.isDraggingOver ? 'bg-white/70' : ''}`}>{deals.map((deal, index) => <DealCard key={deal.id} deal={deal} index={index} stageLabel={label} scope={scope} selectionMode={selectedIds.size > 0} selected={selectedIds.has(deal.id)} onToggleSelect={() => toggleSelect(deal.id)} onOpen={() => { setSelectedDealId(deal.id); setSelectedContact(null); }} onArchive={() => archiveDeal(deal)} onDelete={() => requestDelete(deal)} onRestore={() => restoreDeal(deal)} />)}{provided.placeholder}{deals.length === 0 && !snapshot.isDraggingOver && <div className="flex h-24 items-center justify-center text-xs text-neutral-500">No matching deals</div>}</div>}
                     </Droppable>
-
-                    {/* Add deal button */}
-                    <div className="px-2 pb-2 shrink-0">
-                      <button
-                        onClick={() => setAddDealModal({ pipelineId: activePipelineId, stageName: stageData.stageName })}
-                        className="w-full text-xs text-neutral-500 hover:text-neutral-600 hover:bg-white border border-dashed border-neutral-200 hover:border-neutral-300 rounded-lg py-1.5 transition-colors"
-                      >
-                        + Add Deal
-                      </button>
-                    </div>
-                  </div>
+                    {scope === 'active' && <div className="shrink-0 border-t border-neutral-200/60 p-2"><button type="button" onClick={() => setAddDealModal({ pipelineId: activePipelineId, stageName: stage.stageName })} className="w-full rounded-lg border border-dashed border-neutral-300 py-2 text-xs font-medium text-neutral-500 hover:border-primary-300 hover:bg-white hover:text-primary-600">+ Add Deal</button></div>}
+                  </section>
                 );
               })}
+              <div className="w-1 shrink-0" aria-hidden="true" />
             </div>
           </DragDropContext>
+        ) : (
+          <div className="min-h-0 flex-1 overflow-auto p-4">
+            <div className="min-w-[980px] overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-sm">
+              <div className="flex items-center justify-between border-b border-neutral-200 bg-neutral-50 px-4 py-2.5"><label className="flex items-center gap-2 text-xs font-medium text-neutral-600"><input type="checkbox" checked={scopedDeals.length > 0 && selectedIds.size === scopedDeals.length} onChange={selectAllVisible} className="rounded border-neutral-300 text-primary-500" /> Select all {scopedDeals.length} matching</label><select value={sortBy} onChange={(event) => setSortBy(event.target.value)} className="rounded-lg border border-neutral-200 bg-white px-2.5 py-1.5 text-xs"><option value="updated">Last activity</option><option value="value">Deal value</option><option value="age">Oldest first</option><option value="name">Name</option></select></div>
+              <table className="w-full text-left text-sm"><thead className="sticky top-0 bg-white text-[11px] uppercase tracking-wide text-neutral-500"><tr><th className="w-10 px-3 py-3"></th><th className="px-3 py-3">Lead</th><th className="px-3 py-3">Company</th><th className="px-3 py-3">Stage</th><th className="px-3 py-3">Value</th><th className="px-3 py-3">Owner</th><th className="px-3 py-3">Source</th><th className="px-3 py-3">Last activity</th></tr></thead><tbody className="divide-y divide-neutral-100">{sortedList.map((deal) => <tr key={deal.id} onClick={() => selectedIds.size ? toggleSelect(deal.id) : setSelectedDealId(deal.id)} className={`cursor-pointer hover:bg-neutral-50 ${selectedIds.has(deal.id) ? 'bg-primary-50' : ''}`}><td className="px-3 py-3"><input type="checkbox" checked={selectedIds.has(deal.id)} onClick={(event) => event.stopPropagation()} onChange={() => toggleSelect(deal.id)} className="rounded border-neutral-300 text-primary-500" /></td><td className="px-3 py-3"><p className="font-semibold text-neutral-900">{deal.contactName || deal.title || 'Unknown'}</p>{scope === 'trash' && <p className={`mt-1 text-[10px] ${isTrashRestoreExpired(deal.metadata?.deletedAt) ? 'text-neutral-400' : 'text-danger-600'}`}>{isTrashRestoreExpired(deal.metadata?.deletedAt) ? 'Restore expired' : `${trashDaysRemaining(deal.metadata?.deletedAt)}d left to restore`}</p>}</td><td className="px-3 py-3 text-neutral-600">{deal.companyName || '—'}</td><td className="px-3 py-3"><span className="rounded-md bg-neutral-100 px-2 py-1 text-xs text-neutral-700">{deal._stageLabel}</span></td><td className="px-3 py-3 font-medium text-neutral-800">{fmtInr(deal.dealValue) || '—'}</td><td className="px-3 py-3 text-neutral-600">{deal.assignedTo || 'Unassigned'}</td><td className="px-3 py-3 text-neutral-600">{deal.source || '—'}</td><td className={`px-3 py-3 ${daysAgo(deal.updatedAt || deal.createdAt) >= 3 ? 'font-semibold text-danger-600' : 'text-neutral-600'}`}>{daysAgo(deal.updatedAt || deal.createdAt)}d ago</td></tr>)}{sortedList.length === 0 && <tr><td colSpan={8} className="px-4 py-16 text-center text-sm text-neutral-500">No matching deals</td></tr>}</tbody></table>
+            </div>
+          </div>
         )}
 
-      {/* Floating bulk-action bar — visible whenever at least one deal is selected.
-          Kept INSIDE <main> so it sits in a landmark (axe `region`); it is
-          position:fixed, so nesting changes nothing visually. */}
-      {selectedIds.size > 0 && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-30 bg-white border border-neutral-200 shadow-xl rounded-2xl px-4 py-2.5 flex items-center gap-3">
-          <span className="text-sm font-medium text-neutral-700">
-            {selectedIds.size} selected
-          </span>
-          <div className="w-px h-5 bg-neutral-200" />
-          <button
-            onClick={bulkArchive}
-            disabled={bulkBusy}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-neutral-600 hover:text-danger-600 hover:bg-danger-500/10 rounded-lg transition-colors disabled:opacity-50"
-            title="Archive selected deals"
-          >
-            <Archive className="w-4 h-4" />
-            {bulkBusy ? 'Archiving…' : 'Archive'}
-          </button>
-          <button
-            onClick={() => setSelectedIds(new Set())}
-            disabled={bulkBusy}
-            className="flex items-center gap-1 px-2 py-1.5 text-sm text-neutral-600 hover:text-neutral-700 rounded-lg transition-colors disabled:opacity-50"
-            title="Clear selection"
-            aria-label="Clear selection"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-      )}
+        {scope === 'trash' && !loading && <div className="shrink-0 border-t border-warning-200 bg-warning-50 px-5 py-2 text-xs text-warning-800">Trash is recoverable for {TRASH_RETENTION_DAYS} days. Deleting an opportunity never deletes the linked Contact, conversations, emails, tasks or history. Expired Trash records remain retained as non-restorable tombstones for audit/referential safety.</div>}
+
+        {selectedIds.size > 0 && <div className="fixed bottom-6 left-1/2 z-40 flex max-w-[92vw] -translate-x-1/2 items-center gap-2 rounded-2xl border border-neutral-200 bg-white px-3 py-2.5 shadow-2xl"><span className="whitespace-nowrap px-1 text-sm font-semibold text-neutral-800">{selectedIds.size} selected</span><div className="h-6 w-px bg-neutral-200" />{scope === 'active' && <><select value={bulkStage} onChange={(event) => setBulkStage(event.target.value)} className="rounded-lg border border-neutral-200 bg-white px-2 py-1.5 text-xs"><option value="">Move stage…</option>{stages.map((stage) => <option key={stage.stageName} value={stage.stageName}>{stage.stageLabel || stage.stageName}</option>)}</select><select value={bulkOwner} onChange={(event) => setBulkOwner(event.target.value)} className="rounded-lg border border-neutral-200 bg-white px-2 py-1.5 text-xs"><option value="">Assign owner…</option><option value="unassigned">Unassigned</option>{ownerOptions.map((owner) => <option key={owner} value={owner}>{owner}</option>)}</select>{(bulkStage || bulkOwner) && <button type="button" onClick={runBulkFieldUpdate} disabled={bulkBusy} className="rounded-lg bg-primary-600 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50">Apply</button>}<button type="button" onClick={() => setConfirmAction({ type: 'archive-bulk' })} disabled={bulkBusy} className="flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-medium text-neutral-600 hover:bg-neutral-100"><Archive className="h-3.5 w-3.5" /> Archive</button><button type="button" onClick={() => setConfirmAction({ type: 'delete-bulk' })} disabled={bulkBusy} className="flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-medium text-danger-600 hover:bg-danger-500/10"><Trash2 className="h-3.5 w-3.5" /> Delete</button></>}{scope === 'archived' && <><button type="button" onClick={() => setConfirmAction({ type: 'restore-bulk' })} disabled={bulkBusy} className="flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-medium text-neutral-700 hover:bg-neutral-100"><RotateCcw className="h-3.5 w-3.5" /> Unarchive</button><button type="button" onClick={() => setConfirmAction({ type: 'delete-bulk' })} disabled={bulkBusy} className="flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-medium text-danger-600 hover:bg-danger-500/10"><Trash2 className="h-3.5 w-3.5" /> Trash</button></>}{scope === 'trash' && <button type="button" onClick={() => setConfirmAction({ type: 'restore-bulk' })} disabled={bulkBusy} className="flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-medium text-neutral-700 hover:bg-neutral-100"><RotateCcw className="h-3.5 w-3.5" /> Restore available</button>}<button type="button" onClick={() => setSelectedIds(new Set())} disabled={bulkBusy} className="rounded-lg p-1.5 text-neutral-500 hover:bg-neutral-100" aria-label="Clear selection"><X className="h-4 w-4" /></button></div>}
       </main>
 
-      {wonLostModal && (
-        <WonLostModal
-          stageName={wonLostModal.toStageLabel}
-          stageOutcome={wonLostModal.stageOutcome}
-          contactName={wonLostModal.deal.contactName ?? 'this contact'}
-          onConfirm={confirmWonLost}
-          onCancel={() => setWonLostModal(null)}
-        />
-      )}
-
-      {addDealModal && (
-        <AddDealModal
-          pipelineId={addDealModal.pipelineId}
-          stageName={addDealModal.stageName}
-          onAdded={handleDealAdded}
-          onClose={() => setAddDealModal(null)}
-        />
-      )}
-
-      {selectedDealId && !selectedContact && (
-        <DealDrawer
-          dealId={selectedDealId}
-          onClose={() => setSelectedDealId(null)}
-          onViewContact={openContactFromDeal}
-          onUpdated={loadDeals}
-        />
-      )}
-
-      {selectedContact && (
-        <ContactSlideIn
-          contact={selectedContact}
-          onClose={() => setSelectedContact(null)}
-          onUpdated={() => { loadDeals(); setSelectedContact(null); }}
-        />
-      )}
-
-      <ConfirmDialog
-        open={confirmArchive}
-        title={`Archive ${selectedIds.size} deal${selectedIds.size === 1 ? '' : 's'}?`}
-        impactSummary="They'll disappear from the board. You can still see them with the “Show archived” toggle."
-        confirmLabel={`Archive ${selectedIds.size} deal${selectedIds.size === 1 ? '' : 's'}`}
-        danger
-        loading={bulkBusy}
-        onConfirm={runBulkArchive}
-        onCancel={() => setConfirmArchive(false)}
-      />
+      {pendingMove && <WonLostModal move={pendingMove} onConfirm={confirmTerminalMove} onCancel={() => setPendingMove(null)} />}
+      {addDealModal && <AddDealModal pipelineId={addDealModal.pipelineId} stageName={addDealModal.stageName} onAdded={() => { setAddDealModal(null); loadDeals(); }} onClose={() => setAddDealModal(null)} />}
+      {selectedDealId && !selectedContact && <DealDrawer dealId={selectedDealId} onClose={() => setSelectedDealId(null)} onViewContact={openContactFromDeal} onUpdated={loadDeals} />}
+      {selectedContact && <ContactSlideIn contact={selectedContact} onClose={() => setSelectedContact(null)} onUpdated={() => { setSelectedContact(null); loadDeals(); }} />}
+      <ConfirmDialog open={Boolean(confirmAction)} title={confirmAction?.type?.includes('delete') ? `Move ${confirmAction?.deal ? 'this deal' : `${selectedIds.size} deal${selectedIds.size === 1 ? '' : 's'}`} to Trash?` : confirmAction?.type?.includes('restore') ? `Restore ${selectedIds.size} deal${selectedIds.size === 1 ? '' : 's'}?` : `Archive ${selectedIds.size} deal${selectedIds.size === 1 ? '' : 's'}?`} impactSummary={confirmAction?.type?.includes('delete') ? `The opportunity will disappear from the active board and can be restored from Trash for ${TRASH_RETENTION_DAYS} days. The linked Contact, conversations and tasks are not deleted.` : confirmAction?.type?.includes('restore') ? 'Restorable opportunities will return to their pre-delete active/archived state. Expired Trash records will be left untouched.' : 'The selected opportunities will move to Archived and can be unarchived later.'} confirmLabel={confirmAction?.type?.includes('delete') ? 'Move to Trash' : confirmAction?.type?.includes('restore') ? 'Restore' : 'Archive'} danger={Boolean(confirmAction?.type?.includes('delete'))} loading={bulkBusy} onConfirm={confirmDialogAction} onCancel={() => setConfirmAction(null)} />
     </div>
   );
 }
