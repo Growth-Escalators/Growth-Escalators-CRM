@@ -5752,3 +5752,33 @@ Verification: backend TypeScript build passed; admin production build passed;
 full Vitest suite passed (245 files / 3326 tests); tenant-scoping lint reported
 zero new findings; targeted regression suite passed (47 tests); diff check
 passed.
+
+---
+
+## 2026-09-03 — Password reset for one Growth Escalators user (Claude)
+
+Operator-requested credential reset for `kanishk.khandelwal@growthescalators.com`
+on the **growth-escalators** tenant only (user `b49f78bb-20de-44ff-be64-1e01ebae80eb`).
+
+Read-first `SELECT` surfaced that this email resolves to **two** accounts — one
+per tenant (`growth-escalators` and `wizmatch`) — because Growth and WizMatch
+logins are now separate. Scope was confirmed as Growth-only before any write;
+the WizMatch account (`115f2251-cf72-417e-bdbb-b63cd23415b3`) was deliberately
+left untouched and its `token_version` is unchanged at 4.
+
+Mutation mirrored `POST /auth/reset-password` in `src/routes/auth.ts`: argon2id
+hash via `@node-rs/argon2`, `UPDATE users SET password_hash`, `token_version`
+bumped 2 -> 3 to invalidate live JWTs, and the user's `password_reset_tokens`
+row cleared (1 row). Run inside a transaction that re-asserted id+email+tenant
+`FOR UPDATE` and would roll back on any row count other than 1; the stored hash
+was verified against the new password before `COMMIT`. Rows updated: 1.
+
+No schema, migration, route, or application code changed. The one-off script ran
+from a scratchpad directory (never committed), took the connection string from
+`railway run --service Postgres` and the password from an environment variable,
+so no credential was written to disk. Password value intentionally not recorded
+here.
+
+Note: there is still no admin-facing "set a teammate's password" endpoint. The
+supported self-serve path is `POST /auth/forgot-password`; `resend-invite` only
+covers users with a pending invite.
