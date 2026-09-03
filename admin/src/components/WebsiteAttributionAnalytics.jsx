@@ -211,6 +211,47 @@ export default function WebsiteAttributionAnalytics({
               </div>
             )}
           </div>
+
+          {/*
+            Growth Tools sit in their own block rather than the view switcher
+            above: those views are one row per acquisition dimension for the
+            website-lead cohort, while this counts tool submissions and cannot
+            share the same columns without misreporting one of them.
+          */}
+          {Array.isArray(data?.growthTools) && data.growthTools.length > 0 && (
+            <div className="mt-4">
+              <h3 className="text-sm font-semibold text-slate-700">Growth Tools → which article earns leads</h3>
+              <p className="text-xs text-slate-400 mt-0.5 mb-2">
+                Counted per submission, so a visitor who runs several tools is counted for each one.
+              </p>
+              <div className="overflow-x-auto border border-slate-200 rounded-lg">
+                <table className="min-w-full divide-y divide-slate-200">
+                  <thead className="bg-slate-50">
+                    <tr>
+                      <th className="px-4 py-2 text-left text-xs font-semibold text-slate-500">Tool</th>
+                      <th className="px-4 py-2 text-left text-xs font-semibold text-slate-500">Source article</th>
+                      <th className="px-4 py-2 text-right text-xs font-semibold text-slate-500">Submissions</th>
+                      <th className="px-4 py-2 text-right text-xs font-semibold text-slate-500">P1</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {data.growthTools.map((row) => (
+                      <tr key={`${row.toolId}::${row.sourceBlog}`}>
+                        <td className="px-4 py-2 text-sm text-slate-700">{row.toolId}</td>
+                        <td className="px-4 py-2 text-sm text-slate-600 break-all">{row.sourceBlog}</td>
+                        <td className="px-4 py-2 text-sm text-slate-700 text-right">
+                          {Number(row.submissions || 0).toLocaleString('en-IN')}
+                        </td>
+                        <td className="px-4 py-2 text-sm font-semibold text-rose-700 text-right">
+                          {Number(row.p1Submissions || 0).toLocaleString('en-IN')}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
         </>
       )}
     </section>

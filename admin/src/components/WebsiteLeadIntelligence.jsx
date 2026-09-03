@@ -98,6 +98,9 @@ function isMasterSalesDeal(deal) {
 export default function WebsiteLeadIntelligence({ contact, deals = [], onPatch }) {
   const metadata = asObject(contact?.metadata);
   const latestLead = asObject(metadata.latestWebsiteLead);
+  // Present only on Growth Tool leads; ordinary website forms send none of it.
+  const growthTool = asObject(latestLead.growthTool);
+  const hasGrowthTool = Boolean(growthTool.toolId || growthTool.priority);
   const firstTouch = asObject(metadata.firstWebsiteAttribution);
   const lastTouch = asObject(metadata.lastWebsiteAttribution);
   const conversion = asObject(metadata.latestWebsiteConversion);
@@ -181,6 +184,65 @@ export default function WebsiteLeadIntelligence({ contact, deals = [], onPatch }
           </div>
         )}
       </div>
+
+      {hasGrowthTool && (
+        <div className="space-y-2">
+          <div className="flex items-center gap-2">
+            <h4 className="text-[10px] font-semibold text-neutral-500 uppercase tracking-wide">Growth tool</h4>
+            {growthTool.priority && (
+              <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border ${
+                growthTool.priority === 'P1'
+                  ? 'bg-danger-500/10 border-danger-200 text-danger-700'
+                  : 'bg-neutral-100 border-neutral-200 text-neutral-600'
+              }`}>
+                {growthTool.priority}
+                {growthTool.priority === 'P1' ? ' · contact today' : ''}
+              </span>
+            )}
+          </div>
+
+          <div className="rounded-xl bg-white border border-neutral-200 p-3 space-y-2">
+            <div>
+              <span className="block text-[10px] uppercase tracking-wide text-neutral-400">Tool used</span>
+              <span className="text-xs font-semibold text-neutral-800">{growthTool.toolId || '—'}</span>
+            </div>
+
+            {growthTool.headline && (
+              <div>
+                <span className="block text-[10px] uppercase tracking-wide text-neutral-400">What the tool told them</span>
+                <p className="text-xs text-neutral-700">{growthTool.headline}</p>
+              </div>
+            )}
+
+            {Array.isArray(growthTool.metrics) && growthTool.metrics.length > 0 && (
+              <div className="grid grid-cols-2 gap-2">
+                {growthTool.metrics.map((metric) => (
+                  <Metric key={metric.label} label={metric.label} value={metric.value} />
+                ))}
+              </div>
+            )}
+
+            {/* The visitor's own numbers — the strongest qualification signal we hold. */}
+            <div className="grid grid-cols-2 gap-2">
+              <Metric label="Revenue (₹ lakh)" value={growthTool.revenueLakh} />
+              <Metric label="Ad spend (₹ lakh)" value={growthTool.adSpendLakh} />
+              <Metric label="Target revenue (₹ lakh)" value={growthTool.targetRevenueLakh} />
+              <Metric label="Score" value={growthTool.score} />
+            </div>
+
+            {growthTool.sourceBlog && (
+              <a
+                href={`https://www.growthescalators.com/blog/${growthTool.sourceBlog}`}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-block text-xs text-primary-600 hover:underline"
+              >
+                From article: {growthTool.sourceBlogTitle || growthTool.sourceBlog} ↗
+              </a>
+            )}
+          </div>
+        </div>
+      )}
 
       <div className="space-y-2">
         <h4 className="text-[10px] font-semibold text-neutral-500 uppercase tracking-wide">Acquisition journey</h4>

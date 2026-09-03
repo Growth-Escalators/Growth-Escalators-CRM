@@ -29,6 +29,88 @@ function slugTag(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 50);
 }
 
+/**
+ * Absent must stay absent. `Number('')` and `Number(null)` are both 0, so a
+ * missing figure would otherwise be stored as a real zero — and the CRM would
+ * render "Revenue: 0" for a visitor who simply never entered one, which reads
+ * as a fact rather than a gap.
+ */
+function cleanNumber(value: unknown, max = 1_000_000): number | null {
+  if (value === null || value === undefined || value === '') return null;
+  const n = typeof value === 'number' ? value : Number(cleanString(value, 20));
+  if (!Number.isFinite(n) || n < 0 || n > max) return null;
+  return n;
+}
+
+export interface GrowthToolContext {
+  toolId: string;
+  intentCluster: string;
+  priority: 'P1' | 'P2' | '';
+  headline: string;
+  metrics: { label: string; value: string }[];
+  recommendations: string[];
+  sourceBlog: string;
+  sourceBlogTitle: string;
+  revenueLakh: number | null;
+  adSpendLakh: number | null;
+  targetRevenueLakh: number | null;
+  score: number | null;
+  stage: string;
+}
+
+/**
+ * Growth Tool leads carry context the generic website form does not: which
+ * calculator ran, what it concluded, the visitor's own revenue and ad-spend
+ * figures, and the P1/P2 the website scored from them.
+ *
+ * The route read none of it. The most commercially useful thing a visitor
+ * tells us — "₹25 lakh revenue, ₹3 lakh ad spend" — arrived on every request
+ * and was dropped, while the CRM rendered an empty "Monthly revenue" field.
+ *
+ * Returns null for non-tool submissions. The same route serves the contact
+ * form and the industry landing pages, and those send none of these keys, so
+ * every field here is optional by construction.
+ */
+export function parseGrowthTool(body: Record<string, unknown> | undefined): GrowthToolContext | null {
+  const toolId = cleanString(body?.toolId, 100);
+  const rawPriority = cleanString(body?.leadPriority, 10).toUpperCase();
+  const priority = rawPriority === 'P1' || rawPriority === 'P2' ? rawPriority : '';
+
+  // Absent both, this is an ordinary website lead and must be left untouched.
+  if (!toolId && !priority) return null;
+
+  const q = (body?.qualification && typeof body.qualification === 'object'
+    ? body.qualification
+    : {}) as Record<string, unknown>;
+
+  const metrics = Array.isArray(body?.toolMetrics)
+    ? (body!.toolMetrics as unknown[]).slice(0, 8).map((item) => {
+        const m = (item && typeof item === 'object' ? item : {}) as Record<string, unknown>;
+        return { label: cleanString(m.label, 120), value: cleanString(m.value, 160) };
+      }).filter((m) => m.label && m.value)
+    : [];
+
+  const recommendations = Array.isArray(body?.toolRecommendations)
+    ? (body!.toolRecommendations as unknown[]).slice(0, 6).map((r) => cleanString(r, 500)).filter(Boolean)
+    : [];
+
+  return {
+    toolId,
+    intentCluster: cleanString(body?.intentCluster, 120),
+    priority,
+    headline: cleanString(body?.toolHeadline, 500),
+    metrics,
+    recommendations,
+    sourceBlog: cleanString(body?.sourceBlog, 180),
+    sourceBlogTitle: cleanString(body?.sourceBlogTitle, 300),
+    revenueLakh: cleanNumber(q.revenueLakh, 100_000),
+    adSpendLakh: cleanNumber(q.adSpendLakh, 100_000),
+    targetRevenueLakh: cleanNumber(q.targetRevenueLakh, 100_000),
+    score: cleanNumber(q.score, 100),
+    stage: cleanString(q.stage, 80),
+  };
+}
+
 // ---------------------------------------------------------------------------
 // POST /api/leads/agency — public agency-partnership lead capture.
 // Used by the white-label landing page form (client/src/pages/AgencyPage.jsx).
@@ -249,6 +331,18 @@ router.post('/website', async (req: Request, res: Response): Promise<void> => {
       capturedAt,
     };
 
+    const growthTool = parseGrowthTool(req.body);
+
+    /**
+     * Growth Tool forms ask only for an email, so `monthlyRevenue` always
+     * arrives empty from them — but the visitor typed their revenue straight
+     * into the calculator, and it reaches us as `qualification.revenueLakh`.
+     * Deriving the display string here fills the CRM's existing revenue field
+     * with no UI change, and only ever when the form itself sent nothing.
+     */
+    const monthlyRevenue = cleanString(req.body?.monthlyRevenue, 100)
+      || (growthTool?.revenueLakh ? `₹${growthTool.revenueLakh}L` : '');
+
     const leadSummary = {
       formType,
       businessVertical,
@@ -256,7 +350,7 @@ router.post('/website', async (req: Request, res: Response): Promise<void> => {
       company,
       website: cleanString(req.body?.website, 500),
       industry: cleanString(req.body?.industry, 200),
-      monthlyRevenue: cleanString(req.body?.monthlyRevenue, 100),
+      monthlyRevenue,
       budget: cleanString(req.body?.budget, 100),
       city: cleanString(req.body?.city, 150),
       specialization: cleanString(req.body?.specialization, 200),
@@ -270,6 +364,7 @@ router.post('/website', async (req: Request, res: Response): Promise<void> => {
       assignedBucket: bucket,
       conversionPage: conversionContext.conversionPage,
       capturedAt,
+      ...(growthTool ? { growthTool } : {}),
     };
 
     const channels: { channelType: 'email' | 'whatsapp'; channelValue: string; isPrimary?: boolean }[] = [
@@ -277,7 +372,19 @@ router.post('/website', async (req: Request, res: Response): Promise<void> => {
     ];
     if (phone) channels.push({ channelType: 'whatsapp', channelValue: phone });
 
-    const parts = name.split(/\s+/);
+    /**
+     * Growth Tool forms ask for an email and nothing else, so every one of
+     * them posts the same literal placeholder name. Left alone, the contacts
+     * list fills with identical "Growth tool user" rows that cannot be told
+     * apart at a glance.
+     *
+     * The email is used as the display name instead. Deriving a first name
+     * from the local part was the alternative and was rejected: "priya@" is
+     * not evidence that anyone is called Priya, and a CRM should not invent a
+     * person's name. An address is honest, unique and searchable.
+     */
+    const displayName = /^growth tool user$/i.test(name) && email ? email : name;
+    const parts = displayName.split(/\s+/);
     const sourceDetailParts = [businessVertical, service].filter(Boolean).map(slugTag).filter(Boolean);
     const { contact, channels: existingChannels, created } = await findOrCreateContact(tenant.id, {
       firstName: parts[0] ?? name,
@@ -321,7 +428,25 @@ router.post('/website', async (req: Request, res: Response): Promise<void> => {
     const existingMetadata = (current?.metadata && typeof current.metadata === 'object' ? current.metadata : {}) as Record<string, unknown>;
     const existingTags = (current?.tags ?? []) as string[];
     const verticalTag = businessVertical !== 'general' ? slugTag(businessVertical) : '';
-    const newTags = [...new Set([...existingTags, 'website_lead', ...(verticalTag ? [verticalTag] : [])])];
+
+    /**
+     * Priority rides in as a tag rather than a column. The contacts list
+     * already filters on tags, so "show me every P1" works the moment this
+     * deploys, with no migration against production Postgres.
+     *
+     * A lead can only ever hold one priority tag: a visitor who returns and
+     * scores P1 on a second tool must not keep a stale p2 alongside it.
+     */
+    const priorityTag = growthTool?.priority ? growthTool.priority.toLowerCase() : '';
+    const tagsWithoutPriority = priorityTag
+      ? existingTags.filter((t) => t !== 'p1' && t !== 'p2')
+      : existingTags;
+    const newTags = [...new Set([
+      ...tagsWithoutPriority,
+      'website_lead',
+      ...(verticalTag ? [verticalTag] : []),
+      ...(priorityTag ? [priorityTag, 'growth_tool_lead'] : []),
+    ])];
     const priorCount = Number(existingMetadata.websiteLeadCount || 0);
     const now = new Date();
 
@@ -389,6 +514,14 @@ router.post('/website', async (req: Request, res: Response): Promise<void> => {
         consentTextVersion: whatsappConsent ? consentTextVersion : null,
         preferredCallTime,
         assignedBucket: bucket,
+        /**
+         * Also recorded on the event, not only on the contact. The contact
+         * carries `latestWebsiteLead`, which each new submission overwrites —
+         * a visitor who runs three tools would leave only the last one behind.
+         * Per-tool and per-article reporting has to count submissions, so it
+         * reads these rows rather than the contact.
+         */
+        ...(growthTool ? { growthTool } : {}),
       },
       occurredAt: now,
     }).returning();

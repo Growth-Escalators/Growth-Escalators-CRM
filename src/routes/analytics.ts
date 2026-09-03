@@ -459,7 +459,7 @@ router.get('/website-attribution', requirePermission('REPORTS_VIEW'), async (req
   `;
 
   try {
-    const [totalsResult, firstSourcesResult, lastSourcesResult, firstPagesResult, conversionPagesResult] = await Promise.all([
+    const [totalsResult, firstSourcesResult, lastSourcesResult, firstPagesResult, conversionPagesResult, growthToolsResult] = await Promise.all([
       pool.query(`${websiteCte}
         SELECT
           COUNT(*)::int AS leads,
@@ -475,6 +475,36 @@ router.get('/website-attribution', requirePermission('REPORTS_VIEW'), async (req
       pool.query(dimensionQuery(`last_source || CASE WHEN last_medium <> '' THEN ' · ' || last_medium ELSE '' END`), params),
       pool.query(dimensionQuery('first_landing_page'), params),
       pool.query(dimensionQuery('conversion_page'), params),
+      /**
+       * Growth Tool breakdown — counted from events, not contacts.
+       *
+       * The contact only carries `latestWebsiteLead`, which every new
+       * submission overwrites, so a visitor who runs three calculators would
+       * leave evidence of one. Counting submission events is what makes
+       * "which article produced leads" answerable at all.
+       *
+       * Scoped by occurred_at rather than the contact-creation cohort the rest
+       * of this endpoint uses: a returning contact running a new tool is a new
+       * submission, and hiding it under the month they first appeared would
+       * misreport the article that actually earned it.
+       */
+      pool.query(`
+        SELECT
+          COALESCE(NULLIF(e.payload->'growthTool'->>'toolId', ''), '(unknown tool)') AS tool_id,
+          COALESCE(NULLIF(e.payload->'growthTool'->>'sourceBlog', ''), '(tool page direct)') AS source_blog,
+          COUNT(*)::int AS submissions,
+          COUNT(*) FILTER (WHERE e.payload->'growthTool'->>'priority' = 'P1')::int AS p1_submissions
+        FROM events e
+        WHERE e.tenant_id = $1
+          AND e.event_type = 'website_lead_submitted'
+          AND e.payload->'growthTool' IS NOT NULL
+          ${useCustom
+            ? `AND e.occurred_at >= $2::date AND e.occurred_at < ($3::date + INTERVAL '1 day')`
+            : `AND e.occurred_at >= NOW() - make_interval(days => $2::int)`}
+        GROUP BY 1, 2
+        ORDER BY submissions DESC, p1_submissions DESC
+        LIMIT 50
+      `, params),
     ]);
 
     const normalizeRows = (rows: Array<Record<string, unknown>>) => rows.map(row => ({
@@ -509,6 +539,12 @@ router.get('/website-attribution', requirePermission('REPORTS_VIEW'), async (req
       lastSources: normalizeRows(lastSourcesResult.rows as Array<Record<string, unknown>>),
       firstLandingPages: normalizeRows(firstPagesResult.rows as Array<Record<string, unknown>>),
       conversionPages: normalizeRows(conversionPagesResult.rows as Array<Record<string, unknown>>),
+      growthTools: (growthToolsResult.rows as Array<Record<string, unknown>>).map((row) => ({
+        toolId: String(row.tool_id || '(unknown tool)'),
+        sourceBlog: String(row.source_blog || '(tool page direct)'),
+        submissions: Number(row.submissions) || 0,
+        p1Submissions: Number(row.p1_submissions) || 0,
+      })),
     });
   } catch (e: unknown) {
     res.status(500).json({ error: e instanceof Error ? e.message : 'Failed to fetch website attribution' });
