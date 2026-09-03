@@ -48,6 +48,11 @@ function trashDaysRemaining(dateStr) {
   return Math.max(0, TRASH_RESTORE_DAYS - daysAgo(dateStr));
 }
 
+function isTrashRestoreExpired(dateStr) {
+  if (!dateStr) return false;
+  return daysAgo(dateStr) >= TRASH_RESTORE_DAYS;
+}
+
 function fmtInr(val) {
   if (!val || val <= 0) return null;
   if (val >= 100000) return `₹${(val / 100000).toFixed(1)}L`;
@@ -102,6 +107,8 @@ function DealCard({
   const days = daysAgo(deal.updatedAt || deal.createdAt);
   const isArchived = deal.metadata?.archived === true;
   const isDeleted = Boolean(deal.metadata?.deletedAt);
+  const restoreExpired = isDeleted && isTrashRestoreExpired(deal.metadata?.deletedAt);
+  const restoreDaysLeft = isDeleted ? trashDaysRemaining(deal.metadata?.deletedAt) : null;
   const assignedTo = safeText(deal.assignedTo);
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef(null);
@@ -171,13 +178,14 @@ function DealCard({
                   </svg>
                 </button>
                 {menuOpen && (
-                  <div className="absolute top-5 right-0 z-30 bg-white border border-neutral-200 rounded-xl shadow-lg py-1 min-w-[160px]" onClick={(e) => e.stopPropagation()}>
+                  <div className="absolute top-5 right-0 z-30 bg-white border border-neutral-200 rounded-xl shadow-lg py-1 min-w-[180px]" onClick={(e) => e.stopPropagation()}>
                     {isDeleted ? (
                       <button
-                        onClick={() => { onRestore?.(); setMenuOpen(false); }}
-                        className="w-full text-left px-3 py-2 text-sm text-primary-700 hover:bg-primary-50 flex items-center gap-2"
+                        onClick={() => { if (!restoreExpired) onRestore?.(); setMenuOpen(false); }}
+                        disabled={restoreExpired}
+                        className="w-full text-left px-3 py-2 text-sm text-primary-700 hover:bg-primary-50 flex items-center gap-2 disabled:text-neutral-400 disabled:hover:bg-transparent disabled:cursor-not-allowed"
                       >
-                        <RotateCcw className="w-3.5 h-3.5" /> Restore
+                        <RotateCcw className="w-3.5 h-3.5" /> {restoreExpired ? 'Restore window expired' : 'Restore'}
                       </button>
                     ) : (
                       <>
@@ -211,7 +219,7 @@ function DealCard({
           {isDeleted && (
             <div className="mt-2 mb-1 flex items-center gap-1.5 text-[10px] font-medium text-danger-600">
               <Trash2 className="w-3 h-3" />
-              {trashDaysRemaining(deal.metadata?.deletedAt)}d left in restore window
+              {restoreExpired ? 'Restore window expired' : `${restoreDaysLeft}d left in restore window`}
             </div>
           )}
 
@@ -612,6 +620,11 @@ export default function PipelinePage() {
     return null;
   }
 
+  const selectedTrashHasExpired = showTrash && Array.from(selectedIds).some((id) => {
+    const deal = findDeal(id);
+    return isTrashRestoreExpired(deal?.metadata?.deletedAt);
+  });
+
   function removeDealsLocally(ids) {
     const idSet = new Set(ids);
     setKanbanStages((previous) => previous.map((stage) => {
@@ -665,13 +678,17 @@ export default function PipelinePage() {
 
   async function restoreDeals(ids) {
     if (!ids?.length) return;
+    const dealsToRestore = Array.from(ids).map((id) => findDeal(id)).filter(Boolean);
+    if (dealsToRestore.some((deal) => isTrashRestoreExpired(deal.metadata?.deletedAt))) {
+      showError(`One or more selected deals are past the ${TRASH_RESTORE_DAYS}-day restore window.`);
+      return;
+    }
+
     setBulkBusy(true);
     try {
-      await Promise.all(Array.from(ids).map(async (id) => {
-        const deal = findDeal(id);
-        if (!deal) return;
+      await Promise.all(dealsToRestore.map(async (deal) => {
         const wasArchived = deal.metadata?.deletedWasArchived === true;
-        await apiFetch(`/api/deals/${id}`, {
+        await apiFetch(`/api/deals/${deal.id}`, {
           method: 'PATCH',
           body: JSON.stringify({
             metadata: {
@@ -683,9 +700,9 @@ export default function PipelinePage() {
           }),
         });
       }));
-      removeDealsLocally(Array.from(ids));
+      removeDealsLocally(dealsToRestore.map((deal) => deal.id));
       setSelectedIds(new Set());
-      showSuccess(`Restored ${ids.length} deal${ids.length === 1 ? '' : 's'}`);
+      showSuccess(`Restored ${dealsToRestore.length} deal${dealsToRestore.length === 1 ? '' : 's'}`);
     } catch (error) {
       showError('Could not restore every deal. Reloading the Trash view.');
       loadDeals();
@@ -960,9 +977,9 @@ export default function PipelinePage() {
           </div>
 
           {showTrash && (
-            <div className="mt-2 text-xs text-danger-700 bg-danger-500/10 border border-danger-100 rounded-lg px-3 py-2 flex items-center gap-2">
+            <div className="mt-2 text-xs text-danger-700 bg-danger-500/10 border border-danger-200 rounded-lg px-3 py-2 flex items-center gap-2">
               <Trash2 className="w-3.5 h-3.5 shrink-0" />
-              Deleted opportunities are separated from the board. Restoring a deal does not alter its linked contact, conversations, or tasks.
+              Deleted opportunities can be restored for {TRASH_RESTORE_DAYS} days. Their linked contacts, conversations, emails and tasks are kept.
             </div>
           )}
         </div>
@@ -982,6 +999,18 @@ export default function PipelinePage() {
                 </div>
               ))}
             </div>
+            {analytics.byStage?.length > 0 && (
+              <div className="mt-2 flex gap-3 overflow-x-auto pb-1">
+                {analytics.byStage.map((stage) => (
+                  <div key={stage.stage} className="shrink-0 bg-neutral-50 rounded-lg px-3 py-1.5 border border-neutral-100 text-xs">
+                    <span className="font-medium text-neutral-700">{stage.stage}</span>
+                    <span className="text-neutral-500 ml-2">{stage.count} deals</span>
+                    {stage.value > 0 && <span className="text-success-700 ml-2">{fmtInr(stage.value)}</span>}
+                    <span className="text-warning-700 ml-2">{stage.avg_age_days}d avg</span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
@@ -997,7 +1026,7 @@ export default function PipelinePage() {
           <div className="flex-1 flex flex-col items-center justify-center text-center p-8">
             <div className="w-16 h-16 bg-neutral-100 rounded-2xl flex items-center justify-center mb-4">
               <svg className="w-8 h-8 text-neutral-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7"/>
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 012-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7"/>
               </svg>
             </div>
             <h3 className="text-lg font-semibold text-neutral-700 mb-2">No pipelines yet</h3>
@@ -1117,9 +1146,9 @@ export default function PipelinePage() {
             {showTrash ? (
               <button
                 onClick={() => restoreDeals(Array.from(selectedIds))}
-                disabled={bulkBusy}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-primary-700 hover:bg-primary-50 rounded-lg transition-colors disabled:opacity-50"
-                title="Restore selected deals"
+                disabled={bulkBusy || selectedTrashHasExpired}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-primary-700 hover:bg-primary-50 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                title={selectedTrashHasExpired ? `One or more selected deals are past the ${TRASH_RESTORE_DAYS}-day restore window` : 'Restore selected deals'}
               >
                 <RotateCcw className="w-4 h-4" />
                 {bulkBusy ? 'Restoring…' : 'Restore'}
@@ -1210,7 +1239,7 @@ export default function PipelinePage() {
       <ConfirmDialog
         open={pendingDeleteIds.length > 0}
         title={`Move ${pendingDeleteIds.length} deal${pendingDeleteIds.length === 1 ? '' : 's'} to Trash?`}
-        impactSummary="The opportunity will leave the pipeline, but the linked Contact, conversations, emails and tasks are kept. You can restore the opportunity from Trash."
+        impactSummary={`The opportunity will leave the pipeline, but the linked Contact, conversations, emails and tasks are kept. It can be restored from Trash for ${TRASH_RESTORE_DAYS} days.`}
         confirmLabel={`Move ${pendingDeleteIds.length} to Trash`}
         danger
         loading={bulkBusy}
